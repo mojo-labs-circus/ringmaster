@@ -6,6 +6,7 @@ Displays conversation history and handles user input.
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, RichLog
+import asyncio
 from textual.worker import Worker, get_current_worker
 from langchain_core.messages import HumanMessage, AIMessage
 from graph.graph import jarvis_graph
@@ -24,6 +25,7 @@ class JarvisApp(App):
         dock: bottom;
     }
     """
+    BINDINGS = [("ctrl+c", "quit", "Quit")]
 
     def __init__(self):
         super().__init__()
@@ -55,7 +57,7 @@ class JarvisApp(App):
         self.messages.append(HumanMessage(content=user_input))
 
         # Run the graph in a background thread so the TUI doesn't freeze
-        self.run_worker(self.get_response(user_input), exclusive=True)
+        self.run_worker(self.get_response(), exclusive=True)
 
     async def get_response(self) -> None:
         """Runs the graph in a background thread and displays the response."""
@@ -63,7 +65,7 @@ class JarvisApp(App):
         log = self.query_one(RichLog)
         log.write("[bold yellow]JARVIS is thinking...[/bold yellow]")
 
-        result = await self.run_in_executor(
+        result = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: jarvis_graph.invoke({"messages": self.messages})
         )

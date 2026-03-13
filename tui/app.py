@@ -63,18 +63,21 @@ class JarvisApp(App):
         """Runs the graph in a background thread and displays the response."""
 
         log = self.query_one(RichLog)
-        log.write("[bold yellow]JARVIS is thinking...[/bold yellow]")
+        log.write(f"[bold yellow]JARVIS is thinking... [/bold yellow]")
+
 
         result = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: jarvis_graph.invoke({"messages": self.messages})
         )
 
+
         response_text = result["response"]
         self.messages.append(AIMessage(content=response_text))
 
-        # Remove the thinking message and display the response
-        log.write(f"[bold green]JARVIS:[/bold green] {response_text}\n")
+        # Remove the thinking message and display the response with the model used to search
+        model_name = "deepseek-coder-v2" if result.get("mode") == "coding" else "qwen2.5"
+        log.write(f"[bold green]JARVIS[/bold green] [dim](via {model_name}):[/dim] {result['response']}\n")
 
 if __name__ == "__main__":
     app = JarvisApp()

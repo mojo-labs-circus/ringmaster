@@ -1,16 +1,38 @@
-# This is a sample Python script.
+"""
+main.py
+Entry point for JARVIS.
+Initialises the graph and starts the TUI.
+For now: runs a simple terminal loop to test the graph before the TUI is built.
+"""
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from langchain_core.messages import HumanMessage
+from graph.graph import jarvis_graph
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+def main():
+    """Simple terminal loop to test the graph before the TUI is built."""
+
+    print("JARVIS online. Type 'exit' to quit.\n")
+
+    messages = []
+
+    while True:
+        user_input = input("You: ").strip()
+
+        if not user_input:
+            continue
+
+        if user_input.lower() == "exit":
+            break
+
+        messages.append(HumanMessage(content=user_input))
+
+        result = jarvis_graph.invoke({"messages": messages})
+
+        messages.append(result["messages"][-1])
+
+        print(f"\nJARVIS: {result['response']}\n")
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+if __name__ == "__main__":
+    main()

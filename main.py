@@ -5,7 +5,7 @@ Initialises the graph and starts the TUI.
 For now: runs a simple terminal loop to test the graph before the TUI is built.
 """
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from graph.graph import jarvis_graph
 
 
@@ -29,9 +29,10 @@ def main():
 
         result = jarvis_graph.invoke({"messages": messages})
 
-        messages.append(result["messages"][-1])
+        response_text = result["response"]
+        messages.append(AIMessage(content=response_text))
 
-        print(f"\nJARVIS: {result['response']}\n")
+        print(f"\nJARVIS: {response_text}\n")
 
 
 if __name__ == "__main__":

@@ -68,7 +68,12 @@ class JarvisApp(App):
 
         result = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: jarvis_graph.invoke({"messages": self.messages})
+            lambda: jarvis_graph.invoke({
+                "messages": self.messages,
+                "mode": "",
+                "context": "",
+                "response": ""
+            })
         )
 
 

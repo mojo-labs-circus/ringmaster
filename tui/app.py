@@ -10,6 +10,7 @@ import asyncio
 from textual.worker import Worker, get_current_worker
 from langchain_core.messages import HumanMessage, AIMessage
 from graph.graph import jarvis_graph
+from config import GENERAL_MODEL, CODING_MODEL
 
 class JarvisApp(App):
     """The main JARVIS TUI application."""
@@ -81,7 +82,7 @@ class JarvisApp(App):
         self.messages.append(AIMessage(content=response_text))
 
         # Remove the thinking message and display the response with the model used to search
-        model_name = "deepseek-coder-v2" if result.get("mode") == "coding" else "qwen2.5"
+        model_name = CODING_MODEL if result.get("mode") == "coding" else GENERAL_MODEL
         log.write(f"[bold green]JARVIS[/bold green] [dim](via {model_name}):[/dim] {result['response']}\n")
 
 if __name__ == "__main__":

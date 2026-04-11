@@ -1,24 +1,59 @@
+models:
+  router: "qwen2.5:3b"         # dev (nomadbaker) — full system: mistral:7b
+  general: "qwen2.5:3b"        # dev (nomadbaker) — full system: llama3.1:8b
+  reasoning: "qwen2.5:3b"      # dev (nomadbaker) — full system: deepseek-r1:14b
+  embedding: "nomic-embed-text" # unused on nomadbaker (no ChromaDB) — full system: nomic-embed-text
+  fallback: "qwen2.5:3b"       # dev (nomadbaker) — full system: mistral:7b
+  multimodal: ""                # placeholder — full system: llava:13b (Phase 9)
+
 ollama:
-  host: http://localhost:11434
-  models:
-    router: mistral:7b
-    general: qwen2.5:3b
-    coding: qwen2.5:3b
-    embedding: nomic-embed-text
+  base_url: "http://localhost:11434"
+  timeout: 120
+
+server:
+  host: "127.0.0.1"  # dev — full system: 0.0.0.0
+  port: 8000
+
+auth:
+  access_token_expire_hours: 24
+  refresh_token_expire_days: 90
+
+db:
+  path: "~/.jarvis"  # dev only — SQLite files written here. Ignored when JARVIS_DB_BACKEND=postgres.
+
+history:
+  context_window_budget: 16000
+
+maintenance:
+  retention_days: 90
+  log_error_threshold: 50
+
+logging:
+  path: "~/.jarvis/jarvis.log"
 
 memory:
-  chroma_path: ~/.jarvis/chroma
-  vault_path: ~/jarvis-brain
-  auto_ingest: true
+  vault_base: "~/.jarvis/vault"  # dev (nomadbaker) — pearlybaker: /mnt/hdd/jarvis, server: /tank/docker/jarvis/vaults
+  chunk_size: 500
+  chunk_overlap: 50
+
+skills:
+  shared_approved_path: "~/.jarvis/skills/approved"  # dev — full system: /mnt/hdd/jarvis/shared/05-skills/approved
 
 system:
-  confirm_shell: true
   allowed_paths:
-    - ~/jarvis-brain
-    - ~/projects
-    - /tmp
+    - "~/projects"
+    - "/tmp"
 
-api:
-  enabled: false
-  host: 127.0.0.1
-  port: 8000
+coding_team:
+  max_review_iterations: 3
+
+status_messages:
+  router: "Thinking..."
+  memory_retrieve: "Searching memory..."
+  conversation: ""
+  memory: ""
+  web: "Searching the web..."
+  tasks: ""
+  system: ""
+  code: ""
+  responder: ""

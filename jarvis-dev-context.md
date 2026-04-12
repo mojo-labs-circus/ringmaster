@@ -148,3 +148,4 @@
 | 2026-04-09–10 | Nine spec review rounds — spec locked at rev 10 |
 | 2026-04-11 | Spec called airtight. Dev context rewritten to match. Standing rules expanded with ownership section. On nomadbaker. |
 | 2026-04-12 | Auth repository complete — `db/auth/` (models, repository, sqlite, postgres stub, factory) + `db/schema.py`. Spec updated: `...` convention for abstract methods, task `id` changed to integer, priority required on creation, logout clears UI immediately. `scripts/seed_db.py` written and verified — `clarkehines` admin created. Next: auth endpoints. |
+| 2026-04-12 | Auth endpoints written — `api/auth.py`, `api/schemas.py`, `api/dependencies.py`. Major spec decisions: `assistant_name` removed from JWT (moved to `GET /profile`), `token_version` increment reserved for forced deauth only, normal logout revokes current device only, brute force config keys added. Cleanup pass needed next session — see CLAUDE.md current task. |

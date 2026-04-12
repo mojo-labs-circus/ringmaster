@@ -21,10 +21,13 @@
 See dev-context session log for full history.
 
 ## Current Task
-`POST /auth/login` — returns access + refresh tokens, inserts `refresh_tokens` row. Files in scope:
-- `api/auth.py` — login, refresh, logout, invite, register endpoints
-- `api/schemas.py` — Pydantic request/response models for auth
-- `api/dependencies.py` — FastAPI dependency for authenticated routes
+Auth endpoints are written but need cleanup before moving on. Do a full rundown with the user on how assistant name changes work end to end before touching any code. Then:
+
+- `auth.py` — add `get_current_user` to imports from `dependencies.py` (logout uses it but it's not imported)
+- `auth.py` — remove `assistant_name` from `_build_access_token` payload
+- `schemas.py` — add `ProfileResponse` (username, tier, assistant_name)
+- `api/routes/` or `api/server.py` — add `GET /profile` endpoint
+- Wire `api/auth.py` router into `api/server.py` if not already done
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the phase checklist.

@@ -74,6 +74,8 @@ Every client — TUI, web dashboard, mobile PWA — talks to the same backend ov
 - **Any node setting `error` routes immediately to RESPONDER.** All downstream nodes are skipped. This is a universal graph rule — no node after a failing node ever runs. RESPONDER formats the error with tier-appropriate detail: Admin gets full technical detail (component, error class, what failed and where), Power gets operational detail (what couldn't be completed, plain reason), Standard gets plain English specific to what the user asked for (no technical terms, but not vague — e.g. "I couldn't retrieve your memories for this request" not "something went wrong"). Regardless of tier, the error is always logged at `ERROR` level so full detail is available on the server.
 - **One message at a time per connection.** FastAPI processes one invocation per user at a time. Incoming messages received during an active invocation are queued and processed only after the `done` frame has been sent.
 - **Abstract repository methods use `...` as the body, not `pass`.** `...` (Ellipsis) signals "intentionally unimplemented — implementation lives elsewhere." `pass` means "do nothing," which is misleading for an interface method. This applies to all `repository.py` files across `db/auth/`, `db/tasks/`, and `db/history/`.
+- **Never call `get_auth_repository()`, `get_task_repository()`, or `get_history_repository()` inside a function body.** Repository instantiation always happens at module level or via FastAPI's `Depends()` injection. Constructing a repository inside a function body bypasses dependency injection and makes the code untestable.
+- **Prefer dependency injection over manual checks.** Any check performed on more than one endpoint — authentication, tier gating, repository access — must be implemented as a FastAPI dependency in `dependencies.py` and applied via `Depends()`. Never duplicate the same check logic inside multiple function bodies.
 
 ---
 
@@ -139,28 +141,42 @@ The client then re-authenticates via the normal silent refresh flow. No server-s
   "user_id": "clarkehines",
   "tier": "admin",
   "client_type": "tui",
-  "assistant_name": "JARVIS",
   "token_version": 4,
   "exp": 1234567890
 }
 ```
 
-`client_type` is included in the JWT payload so the RESPONDER node always knows what it is talking to without an extra lookup. Valid values: `tui | web | mobile`.
-
-`assistant_name` is included so the client can display it immediately on login without an extra API call.
+`client_type` is included so the RESPONDER node always knows what it is talking to without an extra lookup. Valid values: `tui | web | mobile`.
 
 `token_version` is validated against the database on every request. If the stored version is higher than the token's version, the token is rejected and the client must refresh. This allows immediate forced invalidation without waiting for token expiry.
+
+`assistant_name` is intentionally excluded from the JWT. Profile data does not belong in auth tokens. The client fetches it from `GET /profile` on login and caches it locally. Name changes propagate instantly via WebSocket push to all active connections — no re-login, no token invalidation required.
+
+### `GET /profile`
+
+Returns the current user's profile data. Called by the client on login and whenever a profile update is received over WebSocket. The JWT provides identity — `/profile` provides everything the client needs to display and personalise the UI.
+
+```json
+{
+  "username": "clarkehines",
+  "tier": "admin",
+  "assistant_name": "JARVIS"
+}
+```
+
+Future personality settings (response style, verbosity, language preferences, etc.) are added to this response as they are introduced — never to the JWT.
 
 ### Token Version & Forced Invalidation
 
 Every user has a `token_version: int` column in the database. The current version is embedded in every issued token. On every request FastAPI checks the token's version against the stored value — if they don't match, the token is rejected.
 
-Incrementing `token_version` immediately invalidates all active tokens for that user. This is used for:
-- Assistant name changes — `assistant_name` and `token_version` updated atomically
-- Tier changes — `tier` and `token_version` updated atomically
-- Admin-forced deauthorisation — Admin can invalidate any user's token via the user management endpoint
-- Explicit logout — `token_version` incremented, stored tokens on client deleted, refresh token row marked revoked
-- Any other forced re-authentication (e.g. security incident)
+Incrementing `token_version` immediately invalidates all active tokens for that user across all devices. This is a nuclear option reserved for:
+- **Admin-forced deauth** — intentional removal or security incident. Kills all active sessions immediately.
+
+Everything else propagates seamlessly with no re-login:
+- **Assistant name changes** — database updates instantly, server pushes to all active WebSocket connections. Token untouched.
+- **Tier changes** — enforced server-side on every request via live user record lookup. Propagates on next silent refresh within 24 hours.
+- **Normal logout** — revokes the current device's refresh token only. Other devices stay active. Token version untouched.
 
 ### `users` Table
 
@@ -200,7 +216,7 @@ New users are added via an invite flow — the Admin generates a one-time invite
 
 **Invite flow:**
 1. Admin calls `POST /auth/invite` with `username`, `tier`, `assistant_name` — server creates the invite row and returns the raw token
-2. Admin shares the token with the new family member (text, WhatsApp, etc.)
+2. Admin shares the token with the new family member (text, WhatsApp, etc.). Future: the web dashboard generates a registration link with the token baked in — family member clicks it and lands directly on the registration page.
 3. Family member calls `POST /auth/register` with the token and their chosen password — server validates the token, creates the user record, marks the invite `used = true`
 4. Account is active — family member can log in immediately
 
@@ -208,9 +224,10 @@ New users are added via an invite flow — the Admin generates a one-time invite
 
 - `POST /auth/login` — Open. Request body: `{"username": "...", "password": "..."}`. On success: returns `{"access_token": "eyJ...", "refresh_token": "eyJ...", "access_expires_at": "..."}` and inserts a row into `refresh_tokens`. On failure: 401. Failed login attempts are tracked per IP in an in-memory dict in `api/auth.py` — a simple mapping of IP address to a list of attempt timestamps. 5 failures within 10 minutes triggers an admin notification via ntfy. This state resets on server restart, which is acceptable — the brute-force window simply clears.
 - `POST /auth/refresh` — Open (valid refresh token required). See `/auth/refresh` contract below.
-- `POST /auth/logout` — Authenticated. Increments `token_version`, marks refresh token row `revoked = true`.
+- `POST /auth/logout` — Authenticated. Marks the current device's refresh token row `revoked = true`. Does not increment `token_version` — other devices stay active.
 - `POST /auth/invite` — Admin only. Returns a one-time invite token valid for 48 hours.
-- `POST /auth/register` — Open (invite token required). Consumes the invite, creates the user.
+- `POST /auth/register` — Open (invite token required). Consumes the invite, creates the user. Notifies admin via ntfy on success — admin should know when a new user joins the system.
+- `GET /profile` — Authenticated. Returns `username`, `tier`, `assistant_name`. Called by client on login and after receiving an assistant name change push over WebSocket.
 
 ### Daily Maintenance Job (ofelia)
 
@@ -249,10 +266,11 @@ The TUI is a long-lived terminal process — the access token can expire mid-ses
 
 `access_expires_at` is an ISO 8601 UTC timestamp. The TUI checks this directly — no JWT decoding required to determine whether refresh is needed.
 
-**`/auth/refresh` contract (Phase 3):** The client sends a JSON body with the raw refresh token:
+**`/auth/refresh` contract (Phase 3):** The client sends a JSON body with the raw refresh token and its client type:
 ```json
-{"refresh_token": "eyJ..."}
+{"refresh_token": "eyJ...", "client_type": "tui"}
 ```
+`client_type` is sent by the client rather than stored in `refresh_tokens` — the client always knows its own type and this keeps the table simple.
 The server validates it (exists, not revoked, not expired), reads the current `token_version`, `tier`, and `assistant_name` from the `users` table, and issues a new access token embedding those current values. This means a silent refresh automatically picks up any pending name or tier changes — the new token reflects the live user record at the moment of issuance.
 ```json
 {

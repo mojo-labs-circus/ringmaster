@@ -27,7 +27,8 @@ See dev-context session log for full history.
 - `api/dependencies.py` — FastAPI dependency for authenticated routes
 
 ## Session Rules
-For feature additions and architecture skeleton changes: verify against spec exit criteria and update these files before moving on. For pure data layer boilerplate: comprehension check is sufficient — integration verification comes with the next meaningful piece.
+- Commit and push after every completed bulletpoint on the phase checklist.
+- For feature additions and architecture skeleton changes: verify against spec exit criteria and update these files before moving on. For pure data layer boilerplate: comprehension check is sufficient — integration verification comes with the next meaningful piece.
 
 ## Standing Rules — Follow These Every Session
 
@@ -54,6 +55,7 @@ contradicts it, flag it before the code lands.
 
 ## Architecture Rules
 - Repository pattern everywhere — nodes never touch raw SQL or storage directly
+- Never call `get_auth_repository()`, `get_task_repository()`, or `get_history_repository()` inside a function body — repository instantiation always happens at module level or via FastAPI's `Depends()` injection
 - All data operations scoped to `user_id` — no global queries
 - Model names always from `config.yaml` via `config.py` — never hardcoded
 - Secrets via env vars only — `JARVIS_SECRET_KEY` hard-fails if unset

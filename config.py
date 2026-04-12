@@ -33,8 +33,10 @@ SERVER_HOST: str        = _config["server"]["host"]
 SERVER_PORT: int        = _config["server"]["port"]
 
 # Auth
-ACCESS_TOKEN_EXPIRE_HOURS: int  = _config["auth"]["access_token_expire_hours"]
-REFRESH_TOKEN_EXPIRE_DAYS: int  = _config["auth"]["refresh_token_expire_days"]
+ACCESS_TOKEN_EXPIRE_HOURS: int      = _config["auth"]["access_token_expire_hours"]
+REFRESH_TOKEN_EXPIRE_DAYS: int      = _config["auth"]["refresh_token_expire_days"]
+BRUTE_FORCE_LIMIT: int              = _config["auth"]["brute_force_limit"]
+BRUTE_FORCE_WINDOW_MINUTES: int     = _config["auth"]["brute_force_window_minutes"]
 
 # Database
 DB_PATH: str            = str(Path(_config["db"]["path"]).expanduser())

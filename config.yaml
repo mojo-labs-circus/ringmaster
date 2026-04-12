@@ -17,6 +17,8 @@ server:
 auth:
   access_token_expire_hours: 24
   refresh_token_expire_days: 90
+  brute_force_limit: 5        # failed login attempts before admin is notified
+  brute_force_window_minutes: 10
 
 db:
   path: "~/.jarvis"  # dev only — SQLite files written here. Ignored when JARVIS_DB_BACKEND=postgres.

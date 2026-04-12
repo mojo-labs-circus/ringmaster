@@ -132,6 +132,8 @@
 
 **Call out spec deviations immediately.** If Claude proposes something that isn't in the spec or contradicts it, flag it before the code lands. The spec is the source of truth — not whatever seems convenient in the moment. If the spec needs updating, update it explicitly and intentionally.
 
+**Commit and push after every completed bulletpoint on the phase checklist.** No accumulating a session's worth of work before committing.
+
 ---
 
 ## Session Log

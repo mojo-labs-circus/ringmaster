@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from api.routes.auth import router as auth_router
 from api.routes.chat import router as chat_router
 from api.routes.profile import router as profile_router
+from config import DB_BACKEND
+from db.schema import create_tables
 from logging_config import configure_logging
 from notifications.notify import notify_admin
 
@@ -22,6 +24,8 @@ async def lifespan(app: FastAPI):
     # reload mode spawns a child process that imports the app fresh, and logging
     # set up in main.py only applies to the parent reloader process.
     configure_logging()
+    if DB_BACKEND == "sqlite":
+        create_tables()
     logger.info("JARVIS worker process started")
     yield
 

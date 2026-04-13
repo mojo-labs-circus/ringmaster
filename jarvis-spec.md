@@ -168,7 +168,7 @@ Future personality settings (response style, verbosity, language preferences, et
 Every user has a `token_version: int` column in the database. The current version is embedded in every issued token. On every request FastAPI checks the token's version against the stored value — if they don't match, the token is rejected.
 
 Incrementing `token_version` immediately invalidates all active tokens for that user across all devices. This is a nuclear option reserved for:
-- **Admin-forced deauth** — intentional removal or security incident. Kills all active sessions immediately.
+- **Admin-forced deauth** — intentional removal or security incident. Two steps, in order: (1) increment `token_version` in the database — all subsequent HTTP requests with the old access token are rejected immediately; (2) server iterates the connection registry and calls `websocket.close()` on every active WebSocket connection for that user — no frame is sent first, the socket is closed immediately. The client receives a disconnect event and must return the user to the login screen. There is no grace period and no warning.
 
 Everything else propagates seamlessly with no re-login:
 - **Assistant name changes** — database updates instantly, server pushes to all active WebSocket connections. Token untouched.

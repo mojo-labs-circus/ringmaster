@@ -379,9 +379,9 @@ Two distinct failure scenarios are handled differently:
 
 **Scenario B — Ollama process is unreachable.** No model fallback is possible — all models are served by Ollama. JARVIS returns a clean "service temporarily unavailable" message to the user and immediately notifies the admin via ntfy. No inference attempt is made. Note that if Ollama is unreachable, ROUTER itself fails before any agent node runs — the global exception handler catches this and sends the `error` frame directly, bypassing the node-level error pattern entirely. This is the explicit exception to that pattern.
 
-### Admin Notifications — `monitoring/notify.py`
+### Admin Notifications — `notifications/notify.py`
 
-A single `monitoring/notify.py` module wraps ntfy. Everything that needs to alert the admin calls `notify_admin(error_class, message)` — one place to update if ntfy ever moves.
+A single `notifications/notify.py` module wraps ntfy. Everything that needs to alert the admin calls `notify_admin(error_class, message)` — one place to update if ntfy ever moves.
 
 **Notify admin on:**
 - Ollama process unreachable (Scenario B above)
@@ -396,7 +396,9 @@ A single `monitoring/notify.py` module wraps ntfy. Everything that needs to aler
 - ROUTER parse failures that fell back gracefully
 - Tier gate hits (user tried a capability they don't have)
 
-**Cooldown:** Same `error_class` triggers at most one notification per 10 minutes. Cooldown state is tracked in memory — not persisted. This prevents phone-blowing-up scenarios when a service goes down and every request fails.
+**Cooldown:** The `(error_class, message)` tuple is the cooldown key — at most one notification per unique `(class, message)` pair per 10 minutes. Using `error_class` alone would suppress distinct errors that share a class (e.g., two unrelated `ValueError`s). Using the full message text gives the right granularity without the false-suppression risk, since unhandled exceptions at this volume are rare. Cooldown state is tracked in memory — not persisted. This prevents phone-blowing-up scenarios when a service goes down and every request fails.
+
+**Future work:** A `notify_user(user_id, message, type)` function will be added when user-facing async notifications are needed (e.g., background task completion, deadline reminders). User notifications will use a separate channel — likely WebSocket push to the active client, with ntfy as a fallback for offline delivery. `notify_admin` is not extended for this — they are distinct concerns.
 
 ---
 
@@ -1023,7 +1025,7 @@ The web dashboard is built mobile-first and installable as a PWA from any browse
 | Knowledge base | Obsidian vault (Markdown) | Per-user + shared family vault |
 | Web search | DuckDuckGo | No key, no tracking — via `tools/search.py` |
 | Web scraping | Playwright | Headless — via `tools/search.py` |
-| Notifications | ntfy | Admin error alerts via `monitoring/notify.py` |
+| Notifications | ntfy | Admin error alerts via `notifications/notify.py` |
 | Containerisation | Docker + Docker Compose | Server deployment |
 | Reverse proxy | Caddy | TLS + routing |
 | Remote access | Tailscale | All clients connect via Tailscale |
@@ -1124,7 +1126,7 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
 - [ ] Conversation history write back to repository after invocation
 - [ ] Secrets via env vars only — `JARVIS_SECRET_KEY` hard-fails if unset, no sensitive values in `config.yaml` or git
 - [ ] `main.py` — launches FastAPI via uvicorn, `reload=True` in dev
-- [ ] `monitoring/notify.py` — ntfy wrapper, `notify_admin(error_class, message)`, 10-minute cooldown per error class
+- [ ] `notifications/notify.py` — ntfy wrapper, `notify_admin(error_class, message)`, 10-minute cooldown keyed on `(error_class, message)` tuple
 - [ ] Logging configured in `main.py` — `RotatingFileHandler`, path from `LOG_PATH`, 10 MB max per file, 5 files retained, `INFO` level by default
 - [ ] FastAPI global exception handler wired to `notify_admin`
 - [ ] Daily ofelia maintenance job — purges expired `refresh_tokens`, expired `invites`, and history entries older than `RETENTION_DAYS`. Counts `ERROR`-level log entries from the last 24 hours — notifies admin if over `LOG_ERROR_THRESHOLD`. Intentionally general-purpose — future maintenance tasks added here.
@@ -1344,8 +1346,8 @@ Voice is an add-on — the rest of the platform is fully functional without it. 
 │   ├── ingest.py            # Vault ingestion pipeline
 │   ├── retrieval.py         # Queries memory_{user_id} + memory_shared
 │   └── persist.py           # Background task — fired unconditionally after every exchange. Evaluates exchange, classifies personal vs shared, writes to ChromaDB if worth persisting.
-├── monitoring/
-│   └── notify.py            # ntfy wrapper — notify_admin(error_class, message), 10-min cooldown
+├── notifications/
+│   └── notify.py            # ntfy wrapper — notify_admin(error_class, message), 10-min cooldown per (error_class, message)
 ├── maintenance/
 │   └── cleanup.py           # Daily maintenance job — purge expired tokens, invites, old history
 ├── tests/

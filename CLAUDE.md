@@ -18,20 +18,21 @@
 - Phase 3 Current — Tools + FastAPI
 
 ## Completed This Phase
-See dev-context session log for full history.
+See `jarvis-dev-context.md` — session log and full phase checklist.
 
 ## Current Task
-Auth endpoints are written but need cleanup before moving on. Do a full rundown with the user on how assistant name changes work end to end before touching any code. Then:
+FastAPI skeleton items remaining before tool nodes:
 
-- `auth.py` — add `get_current_user` to imports from `dependencies.py` (logout uses it but it's not imported)
-- `auth.py` — remove `assistant_name` from `_build_access_token` payload
-- `schemas.py` — add `ProfileResponse` (username, tier, assistant_name)
-- `api/routes/` or `api/server.py` — add `GET /profile` endpoint
-- Wire `api/auth.py` router into `api/server.py` if not already done
+- `JarvisState` updated — all fields present, node-populated fields zero-initialised by FastAPI
+- `token_version` validated against DB on every request and every WebSocket message
+- Minimal FastAPI server — single `/chat` WebSocket endpoint (streaming, typed JSON frames, queue)
+- Conversation history repository — `db/history/`
+- History load/write + context window budget
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the phase checklist.
 - For feature additions and architecture skeleton changes: verify against spec exit criteria and update these files before moving on. For pure data layer boilerplate: comprehension check is sufficient — integration verification comes with the next meaningful piece.
+- Never add `Co-Authored-By: Claude` or any Claude attribution to commit messages.
 
 ## Standing Rules — Follow These Every Session
 
@@ -153,7 +154,7 @@ not a UUID.
     │   ├── ingest.py
     │   ├── retrieval.py
     │   └── persist.py
-    ├── monitoring/
+    ├── notifications/
     │   └── notify.py
     ├── maintenance/
     │   └── cleanup.py
@@ -169,9 +170,8 @@ not a UUID.
         └── integration/
 
 ## What Does Not Exist Yet
-- Auth system (JWT, users table, refresh tokens) — being built now
-- Database tables — `db/schema.py` being built now
-- LangGraph nodes — Phase 1/2 skeleton exists but nodes are being rebuilt for Phase 3
 - ChromaDB — pearlybaker only
+- Vault — pearlybaker only
+- ntfy — not running on this machine yet
 - Docker / containerisation — Phase 6
 - Gitea — once home server is built

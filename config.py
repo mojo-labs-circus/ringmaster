@@ -31,6 +31,7 @@ OLLAMA_TIMEOUT: int     = _config["ollama"]["timeout"]
 # Server
 SERVER_HOST: str        = _config["server"]["host"]
 SERVER_PORT: int        = _config["server"]["port"]
+SERVER_DEV: bool        = _config["server"]["dev"]
 
 # Auth
 ACCESS_TOKEN_EXPIRE_HOURS: int      = _config["auth"]["access_token_expire_hours"]

@@ -13,6 +13,7 @@ ollama:
 server:
   host: "127.0.0.1"  # dev — full system: 0.0.0.0
   port: 8000
+  dev: true
 
 auth:
   access_token_expire_hours: 24

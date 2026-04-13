@@ -1,7 +1,9 @@
 import sqlite3
 
+from config import CONTEXT_WINDOW_BUDGET
 from db.history.models import HistoryEntry
 from db.history.repository import HistoryRepository
+from tools.tokens import count_tokens
 
 
 class SQLiteHistoryRepository(HistoryRepository):
@@ -22,10 +24,22 @@ class SQLiteHistoryRepository(HistoryRepository):
         )
         rows = cursor.fetchall()
         connection.close()
-        # TODO: trim to CONTEXT_WINDOW_BUDGET tokens once tools/tokens.py is built.
-        # Walk rows newest-first, accumulate running token count, stop when budget
-        # would be exceeded, then reverse to restore chronological order.
-        return [{"role": row[0], "content": row[1]} for row in rows]
+
+        messages = [{"role": row[0], "content": row[1]} for row in rows]
+
+        # Walk newest-first, accumulate token count, drop oldest entries that
+        # would push us over the budget. Reversed at the end to restore
+        # chronological order for the model.
+        kept = []
+        total = 0
+        for message in reversed(messages):
+            cost = count_tokens(message["role"] + message["content"])
+            if total + cost > CONTEXT_WINDOW_BUDGET:
+                break
+            kept.append(message)
+            total += cost
+
+        return list(reversed(kept))
 
     def save(self, entry: HistoryEntry) -> None:
         connection = sqlite3.connect(self.db_path)

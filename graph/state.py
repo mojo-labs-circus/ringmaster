@@ -12,6 +12,21 @@ field exists."""
 from typing import TypedDict
 
 
+class Step(TypedDict):
+    id: str               # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
+    intent: str           # node to dispatch to — "tasks"|"memory"|"code"|"web"|"system"|"conversation"
+    description: str      # neutral plain-language label — ORCHESTRATOR uses this as raw material for tier-aware status messages
+    depends_on: list[str] # IDs of steps that must succeed first. Empty list = no dependencies.
+
+
+class StepResult(TypedDict):
+    step_id: str            # matches the Step.id this result belongs to
+    status: str             # "success" | "failure" | "blocked"
+    response: str           # the agent node's response for this step
+    blocked_by: str | None  # step_id of the failed step that caused this block. None if not blocked.
+    reason: str | None      # failure or block reason. None on success.
+
+
 class JarvisState(TypedDict):
     # Identity — populated by FastAPI before invocation
     user_id: str          # always present, never None — hardcoded to "clarkehines" in dev
@@ -31,7 +46,7 @@ class JarvisState(TypedDict):
                                 # missing project gracefully. Zero-initialised to None by FastAPI.
 
     # Routing — zero-initialised by FastAPI
-    intent: str           # set by ROUTER — "memory" | "tasks" | "code" | "web" | "system" | "conversation"
+    intent: list[str]     # set by ROUTER — one or more of "memory"|"tasks"|"code"|"web"|"system"|"conversation"
     needs_memory: bool    # set by ROUTER — controls whether MEMORY_RETRIEVE is invoked
 
     # Context — zero-initialised to "" by FastAPI
@@ -50,6 +65,10 @@ class JarvisState(TypedDict):
 
     # Interrupt / confirm — zero-initialised to None by FastAPI
     interrupt_payload: dict | None  # written by node before interrupt() — FastAPI builds confirm_request frame
+
+    # Multi-step execution
+    step_plan: list[Step] | None    # produced by PLANNER — zero-initialised to None by FastAPI
+    step_results: list[StepResult]  # accumulated step outcomes written by ORCHESTRATOR — zero-initialised to [] by FastAPI
 
     # Refresh signals — zero-initialised to [] by FastAPI
     refresh: list[str]    # populated by RESPONDER only — FastAPI reads to build done frame

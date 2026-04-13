@@ -88,7 +88,7 @@ async def chat_ws(
                     "messages": history + [{"role": "user", "content": content}],
                     "current_input": content,
                     "active_project": None,
-                    "intent": "",
+                    "intent": [],
                     "needs_memory": False,
                     "retrieved_context": "",
                     "skill_context": "",
@@ -97,6 +97,8 @@ async def chat_ws(
                     "status_message": None,
                     "error": None,
                     "interrupt_payload": None,
+                    "step_plan": None,
+                    "step_results": [],
                     "refresh": [],
                 }
 

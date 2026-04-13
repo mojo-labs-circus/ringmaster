@@ -1,7 +1,7 @@
 # JARVIS — Project Specification
 > Personal AI Assistant Platform — Fully Local, Server-Hosted, Multi-User
 >
-> *Last updated: 2026-04-13 (rev 25)*
+> *Last updated: 2026-04-13 (rev 26)*
 
 ---
 
@@ -601,6 +601,24 @@ This applies to every node that writes `status_message`. Examples per tier for a
 - Power: `"Searching your memory..."`
 - Standard: `"One moment..."`
 
+### Supporting TypedDicts
+
+```python
+class Step(TypedDict):
+    id: str            # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
+    intent: str        # the node to dispatch to — "tasks" | "memory" | "code" | "web" | "system" | "conversation"
+    description: str   # plain-language description of this step, used in tier-aware status messages
+    depends_on: list[str]  # IDs of steps that must succeed before this one runs. Empty list = no dependencies.
+
+
+class StepResult(TypedDict):
+    step_id: str               # matches the Step.id this result belongs to
+    status: str                # "success" | "failure" | "blocked"
+    response: str              # the agent node's response for this step
+    blocked_by: str | None     # step_id of the failed step that caused this block. None if not blocked.
+    reason: str | None         # failure or block reason. None on success.
+```
+
 ### JarvisState Fields
 
 ```python
@@ -627,7 +645,7 @@ class JarvisState(TypedDict):
                                     # for the named project. Zero-initialised to None by FastAPI.
 
     # Routing
-    intent: str                     # set by ROUTER — zero-initialised to "" by FastAPI
+    intent: list[str]               # set by ROUTER — one or more intents. Zero-initialised to [] by FastAPI.
     needs_memory: bool              # set by ROUTER — controls retrieval only. Zero-initialised to False by FastAPI.
 
     # Context
@@ -648,10 +666,8 @@ class JarvisState(TypedDict):
     interrupt_payload: dict | None  # written by node before calling interrupt() — FastAPI builds confirm_request frame from this. Zero-initialised to None by FastAPI.
 
     # Multi-step execution
-    step_plan: list[dict] | None    # produced by PLANNER — list of Step dicts. Zero-initialised to None by FastAPI.
-    step_results: list[dict]        # accumulated step outcomes written by ORCHESTRATOR after each agent node completes.
-                                    # Each entry: {"step_id": str, "status": "success"|"failure"|"blocked",
-                                    # "response": str, "blocked_by": str|None, "reason": str|None}.
+    step_plan: list[Step] | None    # produced by PLANNER — zero-initialised to None by FastAPI.
+    step_results: list[StepResult]  # accumulated step outcomes written by ORCHESTRATOR after each agent node completes.
                                     # Zero-initialised to [] by FastAPI.
 
     # Refresh signals
@@ -662,7 +678,7 @@ class JarvisState(TypedDict):
 
 ### ROUTER
 - Model: `mistral:7b`
-- Classifies every input into one or more intents: `memory | tasks | code | web | system | conversation`
+- Classifies every input into one or more intents: `memory | tasks | code | web | system | conversation` — writes result as `list[str]` to `intent` on state
 - Classification only — ROUTER does not produce a step plan. Step decomposition and dependency inference is PLANNER's responsibility.
 - Checks user tier — Standard users cannot be classified into `code` or `system`. If a Standard user's message maps to a tier-gated intent, ROUTER downgrades it to `conversation` and sets a tier-gate flag on state so RESPONDER can explain the limitation.
 - Checks personal skills collection (`skills_{user_id}`) then shared skills collection (`skills_shared`) for relevant procedural context — graceful no-op if either collection does not exist yet. Personal skills path derived at runtime: `{memory.vault_base}/{user_id}/02-skills/approved/`. Before reading from either skills path, ROUTER checks whether the directory exists on disk — if it doesn't, that source is treated as empty with no error, matching the behaviour of a missing ChromaDB collection. The skills check is intent-scoped — ROUTER fetches skills relevant to the classified intent(s), not a general sweep. This means `skill_context` on state is already targeted at the destination node(s) before they run.
@@ -678,12 +694,7 @@ class JarvisState(TypedDict):
 ### PLANNER
 - Model: `REASONING_MODEL` — dependency inference requires genuine reasoning, not just classification
 - Always runs after ROUTER — single-intent messages produce a one-step plan and exit immediately with negligible overhead
-- Receives ROUTER's classified intent(s) and produces a `StepPlan` — a list of `Step` objects written to `step_plan` on state
-- Each `Step` has:
-  - `id: str` — short unique identifier within this plan (e.g. `"delete_ring"`, `"add_shampoo"`)
-  - `intent: str` — the node to dispatch to (`tasks | memory | code | web | system | conversation`)
-  - `description: str` — plain-language description of this step, used in tier-aware status messages
-  - `depends_on: list[str]` — IDs of steps that must succeed before this one runs. Empty list means no dependencies.
+- Receives ROUTER's classified intents (`list[str]`) and produces a list of `Step` TypedDicts written to `step_plan` on state — see Supporting TypedDicts above for the full `Step` shape
 - Dependency inference is the key responsibility — PLANNER determines which steps are independent and which must wait on others based on semantic reasoning about the user's message
 - On PLANNER failure: sets `error` on state — graph routes immediately to RESPONDER per the universal error routing rule
 - Node-entry status frame sent by FastAPI if `STATUS_MESSAGES["planner"]` is set

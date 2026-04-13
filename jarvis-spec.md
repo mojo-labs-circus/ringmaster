@@ -460,7 +460,7 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 {"type": "confirm_request", "message_id": "abc123", "payload": {"type": "command", "value": "rm -rf /tmp/jarvis-scratch"}}
 {"type": "confirm",         "message_id": "abc123"}
 {"type": "cancel",          "message_id": "abc123"}
-{"type": "profile",         "message_id": "abc123"}
+{"type": "profile",         "message_id": "__push__"}
 ```
 
 **Frame types:**

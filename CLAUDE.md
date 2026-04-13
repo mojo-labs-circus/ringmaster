@@ -1,4 +1,5 @@
 # JARVIS — Claude Code Context
+> **Session start:** Read `CLAUDE.md` (this file), `jarvis-dev-context.md`, and `jarvis-spec.md` before doing anything else. These three files together are the complete project context.
 
 ## Current Machine — nomadbaker
 - **Host:** nomadbaker | **User:** clarkehines | **OS:** Arch Linux

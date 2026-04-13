@@ -1,7 +1,7 @@
 # JARVIS — Project Specification
 > Personal AI Assistant Platform — Fully Local, Server-Hosted, Multi-User
 >
-> *Last updated: 2026-04-11 (rev 23)*
+> *Last updated: 2026-04-12 (rev 24)*
 
 ---
 
@@ -99,9 +99,9 @@ Tier is stored in the user's Postgres profile and checked by FastAPI on every re
 
 Each user configures their own assistant name. Stored per-user in Postgres and served via `GET /profile`. The client fetches it on login and caches it locally.
 
-Name changes go through `PATCH /profile` — no token invalidation, no forced re-login. The server pushes a `profile` WebSocket frame to all of that user's active connections; each client re-fetches `GET /profile` and triggers a silent refresh to get an up-to-date JWT.
+Name changes go through `PATCH /profile` — no token invalidation, no forced re-login. The server pushes a `profile` WebSocket frame to all of that user's active connections; each client re-fetches `GET /profile` and updates its local cache.
 
-Tier changes are admin-only and go through a Phase 4 admin endpoint (`PATCH /admin/users/{username}`). The server pushes the same `profile` WebSocket frame to the affected user's active connections — the client responds identically: `GET /profile` + silent refresh. The new tier is live within seconds on all active clients. No `token_version` increment required.
+Tier changes are admin-only and go through a Phase 4 admin endpoint (`PATCH /admin/users/{username}`). The server pushes the same `profile` WebSocket frame to the affected user's active connections — the client responds identically: re-fetches `GET /profile` and updates its local cache. Live within seconds across all devices. No `token_version` increment required.
 
 ```yaml
 # Example assistant names — stored in Postgres, not config.yaml
@@ -127,7 +127,7 @@ When the access token expires, the client uses the refresh token to get a new on
 
 Refresh tokens are stored server-side in a `refresh_tokens` table. The server stores a hash of the token, not the raw value. On logout or forced deauth, the row is marked `revoked = true` — making silent refresh impossible and requiring full re-authentication. This means forced logout actually means forced logout, with no window where a revoked user can keep refreshing.
 
-The server's responsibility on logout is to mark the refresh token `revoked = true` and increment `token_version`. Client-side credential cleanup is each client's own responsibility — see the TUI Token Management section for TUI-specific behaviour. Web and mobile token storage strategy is deferred to Phase 7 planning, with httpOnly cookies for the refresh token and memory-only for the access token as the likely direction.
+The server's responsibility on logout is to mark the refresh token `revoked = true`. Client-side credential cleanup is each client's own responsibility — see the TUI Token Management section for TUI-specific behaviour. Web and mobile token storage strategy is deferred to Phase 7 planning, with httpOnly cookies for the refresh token and memory-only for the access token as the likely direction.
 
 ### WebSocket and Token Invalidation
 
@@ -139,7 +139,6 @@ The server maintains a connection registry — a dict mapping `user_id` to all c
 ```json
 {
   "user_id": "clarkehines",
-  "tier": "admin",
   "client_type": "tui",
   "token_version": 4,
   "exp": 1234567890
@@ -149,8 +148,6 @@ The server maintains a connection registry — a dict mapping `user_id` to all c
 `client_type` is included so the RESPONDER node always knows what it is talking to without an extra lookup. Valid values: `tui | web | mobile`.
 
 `token_version` is validated against the database on every request. If the stored version is higher than the token's version, the token is rejected and the client must refresh. This allows immediate forced invalidation without waiting for token expiry.
-
-`assistant_name` is intentionally excluded from the JWT. Profile data does not belong in auth tokens. The client fetches it from `GET /profile` on login and caches it locally. Name changes propagate instantly via WebSocket push to all active connections — no re-login, no token invalidation required.
 
 ### `GET /profile`
 
@@ -175,7 +172,7 @@ Incrementing `token_version` immediately invalidates all active tokens for that 
 
 Everything else propagates seamlessly with no re-login:
 - **Assistant name changes** — database updates instantly, server pushes to all active WebSocket connections. Token untouched.
-- **Tier changes** — enforced server-side on every request via live user record lookup. Propagates on next silent refresh within 24 hours.
+- **Tier changes** — server pushes a `profile` frame to all of the user's active connections. Each client calls `GET /profile` and updates its local cache. Live within seconds across all devices.
 - **Normal logout** — revokes the current device's refresh token only. Other devices stay active. Token version untouched.
 
 ### `users` Table
@@ -245,11 +242,13 @@ A daily ofelia job runs a general-purpose maintenance pass. It is intentionally 
 The TUI is a long-lived terminal process — the access token can expire mid-session. The TUI handles this silently via a token manager module (`tui/auth.py`):
 
 - On startup, loads stored tokens from `~/.jarvis/auth.json` — if the file does not exist, presents the login prompt immediately
+- Calls `GET /profile` immediately after loading tokens (or after any successful login/refresh) to populate `tier` and `assistant_name` in memory
 - Opens the WebSocket connection immediately on startup — not lazily on first message
 - Before every API request, checks `access_expires_at` in `auth.json` — if within 5 minutes of expiry, calls the `/auth/refresh` endpoint automatically
 - On successful refresh, writes the new access token and updated `access_expires_at` back to `~/.jarvis/auth.json`
 - If the server returns 401 (token version mismatch), triggers silent refresh immediately
 - If the refresh token is also expired or revoked, presents the login prompt
+- On receipt of a `profile` WebSocket frame, calls `GET /profile` and updates the in-memory cache — this is how assistant name and tier changes propagate to active sessions
 - If the WebSocket connection drops (network blip, server restart), the TUI reconnects automatically — same behaviour as the web client
 - On logout (or forced logout via token version mismatch with no valid refresh), `tui/auth.py` immediately closes the WebSocket, deletes `~/.jarvis/auth.json` from disk, clears all data panels (chat history, tasks, memory — no previously seen data remains visible), and returns the user to the login prompt — it does not wait for a subsequent request or message to fail
 - The user never sees an interruption during normal use
@@ -272,7 +271,7 @@ The TUI is a long-lived terminal process — the access token can expire mid-ses
 {"refresh_token": "eyJ...", "client_type": "tui"}
 ```
 `client_type` is sent by the client rather than stored in `refresh_tokens` — the client always knows its own type and this keeps the table simple.
-The server validates it (exists, not revoked, not expired), reads the current `token_version` and `tier` from the `users` table, and issues a new access token embedding those current values. This means a silent refresh automatically picks up any pending tier changes — the new token reflects the live user record at the moment of issuance.
+The server validates it (exists, not revoked, not expired), reads the current `token_version` from the `users` table, and issues a new access token.
 ```json
 {
   "access_token": "eyJ...",
@@ -294,179 +293,29 @@ Phase 3 does **not** rotate the refresh token — the same refresh token remains
 - **Confirmation output** — prints `Created user clarkehines` on success, `User clarkehines already exists, skipping` if already present
 - **Requires `JARVIS_SECRET_KEY`** — `seed_db.py` imports `config.py`, which reads `JARVIS_SECRET_KEY` at module import time and hard-fails if it is not set. Export it in your shell (or load your `.env`) before running this script, even though the script itself does not use JWT signing.
 
-### `config.yaml` — Canonical Structure
+### `config.yaml` and `config.py`
 
-`config.yaml` lives at the project root and is the single source of truth for all non-sensitive configuration. `config.py` is the only module that reads it — everything else imports constants from `config.py`. Secrets never go here.
+`config.yaml` at the project root is the single source of truth for all non-sensitive configuration. `config.py` is the only module that reads it — everything else imports constants from `config.py`. The files themselves are the authoritative reference — read them directly rather than duplicating their contents here.
 
-```yaml
-# ~/projects/jarvis/config.yaml
+**Config sections and what they control:**
+- `models` — model names for each role (router, general, reasoning, embedding, fallback, multimodal). All model assignments go here — never hardcoded in the codebase. Values differ per machine; see the file for current dev values and comments showing full-system targets.
+- `ollama` — base URL and timeout. `base_url` is the key that changes between dev and Docker deployment.
+- `server` — host and port. Host differs between dev (`127.0.0.1`) and production (`0.0.0.0`).
+- `auth` — token expiry (`access_token_expire_hours`, `refresh_token_expire_days`) and brute force config (`brute_force_limit`, `brute_force_window_minutes`).
+- `db` — `path` is dev-only (SQLite files written here). Ignored when `JARVIS_DB_BACKEND=postgres`. All repository factories read `JARVIS_DB_BACKEND` from the environment, defaulting to `sqlite`.
+- `history` — `context_window_budget` in tokens. Oldest exchanges dropped first when loading history.
+- `maintenance` — `retention_days` (history TTL) and `log_error_threshold` (ERROR count before admin notified).
+- `logging` — log file path. Dev default is `~/.jarvis/jarvis.log`.
+- `memory` — `vault_base` (differs per machine), `chunk_size`, `chunk_overlap`.
+- `skills` — `shared_approved_path` (differs per machine).
+- `system` — `allowed_paths` list for SYSTEM node sandboxing. Machine-specific.
+- `coding_team` — `max_review_iterations` caps the Reviewer → Coder loop.
+- `status_messages` — node-entry status frame text. Empty string = no frame sent. Only governs node-entry frames — mid-node `status_message` updates are dynamic and written by nodes directly.
 
-models:
-  router: "mistral:7b"            # Always used for ROUTER
-  general: "llama3.1:8b"          # Default for conversation
-  reasoning: "deepseek-r1:14b"    # CODE node
-  embedding: "nomic-embed-text"   # All ChromaDB operations
-  fallback: "mistral:7b"          # Primary model failure fallback
-  multimodal: ""                  # Placeholder — llava:13b when implemented at Phase 9
-
-ollama:
-  base_url: "http://localhost:11434"  # localhost in dev — http://ollama:11434 inside Docker
-  timeout: 120                         # seconds
-
-server:
-  host: "0.0.0.0"
-  port: 8000
-
-auth:
-  access_token_expire_hours: 24
-  refresh_token_expire_days: 90
-
-db:
-  path: "~/.jarvis"               # dev only — SQLite files written here. Three files: auth.db, tasks.db, history.db. Ignored when JARVIS_DB_BACKEND=postgres — production connection details come from JARVIS_DB_URL env var.
-
-history:
-  context_window_budget: 16000    # tokens — oldest exchanges dropped first
-
-maintenance:
-  retention_days: 90              # history older than this purged by daily cleanup job
-  log_error_threshold: 50         # ERROR log entries in 24hr before admin is notified
-
-logging:
-  path: "~/.jarvis/jarvis.log"    # dev path — overridden for Docker deployment
-
-memory:
-  vault_base: "/mnt/hdd/jarvis"   # pearlybaker path — personal vaults at {vault_base}/{user_id}/
-  chunk_size: 500                  # words
-  chunk_overlap: 50                # words
-
-skills:
-  shared_approved_path: "/mnt/hdd/jarvis/shared/05-skills/approved"
-
-system:
-  allowed_paths:                   # SYSTEM node sandboxed to these paths
-    - "/home/clarkehines/projects"
-    - "/mnt/hdd/jarvis"
-
-coding_team:
-  max_review_iterations: 3        # max Reviewer → Coder loop iterations before surfacing to user
-  # Additional keys will be added at Phase 3.5 planning time
-
-status_messages:                  # node-entry status frames sent by FastAPI via astream_events
-  router: "Thinking..."           # empty string = no frame sent for that node
-  memory_retrieve: "Searching memory..."
-  conversation: ""
-  memory: ""
-  web: "Searching the web..."
-  tasks: ""
-  system: ""
-  code: ""
-  responder: ""
-```
-
-**Notes:**
-- `ollama.base_url` is the one key that differs between dev and server — update it when deploying to Docker
-- `db.path` is dev-only — SQLite factories resolve files relative to this directory. All three repository factories read `JARVIS_DB_BACKEND` from the environment — defaulting to `sqlite` if unset. Set `JARVIS_DB_BACKEND=postgres` to switch all three simultaneously. In production, Postgres factories call `get_postgres_url()` from `config.py` to obtain the connection string from `JARVIS_DB_URL` at call time — never at module import time. This key is ignored in production.
-- `tasks.backend` and `history.backend` have been removed — all repository factories read `JARVIS_DB_BACKEND` from the environment directly, with `sqlite` as the default. There is no config key for the backend; the env var is the sole control.
-- `memory.vault_base` differs per machine — pearlybaker uses `/mnt/hdd/jarvis`, server uses `/tank/docker/jarvis/vaults`
-- All model name changes go here — never hardcoded anywhere in the codebase
-- `coding_team.max_review_iterations` — controls the Reviewer → Coder loop cap in the Coding Team subgraph. Additional keys will be added at Phase 3.5 planning time.
-- `status_messages` — controls node-entry status frames sent by FastAPI via `astream_events`. Empty string means no frame is sent for that node. This only governs node-entry frames — mid-node `status_message` updates written by nodes themselves during execution (SYSTEM, CODE, WEB) are dynamic and not configurable here. `memory_persist` has been removed from this block — MEMORY_PERSIST is now a FastAPI background task, not a graph node.
-
----
-
-### `config.py` — Contract
-
-`config.py` is the only module that reads `config.yaml`. Everything else imports constants from here. It also reads secrets from environment variables — hard-failing on startup if required secrets are missing.
-
-```python
-"""
-config.py
-Single source of truth for all configuration.
-Every module imports from here — nothing reads config.yaml or env vars directly.
-"""
-import os
-import yaml
-from pathlib import Path
-
-_CONFIG_PATH = Path(__file__).parent / "config.yaml"
-
-def _load() -> dict:
-    with open(_CONFIG_PATH, "r") as f:
-        return yaml.safe_load(f)
-
-_config = _load()
-
-# Models
-ROUTER_MODEL: str       = _config["models"]["router"]
-GENERAL_MODEL: str      = _config["models"]["general"]
-REASONING_MODEL: str    = _config["models"]["reasoning"]
-EMBEDDING_MODEL: str    = _config["models"]["embedding"]
-FALLBACK_MODEL: str     = _config["models"]["fallback"]
-MULTIMODAL_MODEL: str   = _config["models"]["multimodal"]
-
-# Ollama
-OLLAMA_BASE_URL: str    = _config["ollama"]["base_url"]
-OLLAMA_TIMEOUT: int     = _config["ollama"]["timeout"]
-
-# Server
-SERVER_HOST: str        = _config["server"]["host"]
-SERVER_PORT: int        = _config["server"]["port"]
-
-# Auth
-ACCESS_TOKEN_EXPIRE_HOURS: int  = _config["auth"]["access_token_expire_hours"]
-REFRESH_TOKEN_EXPIRE_DAYS: int  = _config["auth"]["refresh_token_expire_days"]
-
-# Database
-DB_PATH: str            = str(Path(_config["db"]["path"]).expanduser())
-DB_BACKEND: str         = os.environ.get("JARVIS_DB_BACKEND", "sqlite")
-
-# History
-CONTEXT_WINDOW_BUDGET: int = _config["history"]["context_window_budget"]
-
-# Maintenance
-RETENTION_DAYS: int     = _config["maintenance"]["retention_days"]
-LOG_ERROR_THRESHOLD: int = _config["maintenance"]["log_error_threshold"]
-
-# Logging
-LOG_PATH: str           = str(Path(_config["logging"]["path"]).expanduser())
-
-# Memory
-VAULT_BASE: str         = str(Path(_config["memory"]["vault_base"]).expanduser())
-CHUNK_SIZE: int         = _config["memory"]["chunk_size"]
-CHUNK_OVERLAP: int      = _config["memory"]["chunk_overlap"]
-
-# Skills
-SHARED_SKILLS_PATH: str = _config["skills"]["shared_approved_path"]
-
-# System
-ALLOWED_PATHS: list[str] = [
-    str(Path(p).expanduser()) for p in _config["system"]["allowed_paths"]
-]
-
-# Coding Team
-MAX_REVIEW_ITERATIONS: int = _config["coding_team"]["max_review_iterations"]
-
-# Status messages
-STATUS_MESSAGES: dict[str, str] = _config["status_messages"]
-
-# Secrets — hard fail if not set, no silent fallback
-SECRET_KEY: str = os.environ["JARVIS_SECRET_KEY"]
-
-# JWT algorithm — hardcoded, not a config key. HS256 is symmetric and appropriate for
-# single-server use where the secret never leaves the backend. Changing this would
-# immediately invalidate all active tokens, so it is not a runtime tunable.
-ALGORITHM: str = "HS256"
-
-def get_postgres_url() -> str:
-    """
-    Returns the Postgres connection URL from the environment.
-    Only called by Postgres repository factories — never at module import time.
-    Hard-fails if JARVIS_DB_URL is not set, so misconfiguration is caught immediately.
-    """
-    return os.environ["JARVIS_DB_URL"]
-```
-
-`JARVIS_SECRET_KEY` is read at module import time — if it is not set in the environment, the process fails immediately with a `KeyError` rather than starting with a missing secret.
+**`config.py` rules:**
+- `JARVIS_SECRET_KEY` is read at module import time — hard-fails immediately with `KeyError` if unset. No silent fallback.
+- `get_postgres_url()` reads `JARVIS_DB_URL` at call time, not import time. Only called by Postgres repository factories.
+- `ALGORITHM = "HS256"` is hardcoded — not a config key. Changing it would immediately invalidate all active tokens.
 
 ---
 
@@ -625,7 +474,7 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 | `confirm_request` | server → client | Node is paused awaiting confirmation — carries `payload` describing what requires approval. Client must disable input on receipt. |
 | `confirm` | client → server | User approved the pending action — graph resumes. `message_id` correlates to the `confirm_request` that triggered it. |
 | `cancel` | client → server | User cancelled the pending action — graph aborts the command cleanly. `message_id` correlates to the `confirm_request` that triggered it. On cancel, control returns to the user — if they want to redirect or explain, their next message handles it naturally. |
-| `profile` | server → client | Profile data has changed — client should call `GET /profile` and trigger a silent refresh immediately. Sent to all active connections for the user on any `assistant_name` or `tier` change. |
+| `profile` | server → client | Profile data has changed — client should call `GET /profile` and update its local cache. Sent to all active connections for the user on any `assistant_name` or `tier` change. |
 
 ### message_id
 
@@ -754,9 +603,9 @@ This applies to every node that writes `status_message`. Examples per tier for a
 class JarvisState(TypedDict):
     # Identity — populated by FastAPI before invocation
     user_id: str                    # always present, never None — hardcoded to "clarkehines" in dev
-    tier: str                       # "admin" | "power" | "standard"
+    tier: str                       # "admin" | "power" | "standard" — populated by FastAPI from live DB record
     client_type: str                # "tui" | "web" | "mobile"
-    assistant_name: str             # per-user, fetched from GET /profile and cached by client
+    assistant_name: str             # per-user, populated by FastAPI from live DB record; client fetches via GET /profile and caches locally
 
     # Conversation
     messages: list[dict]            # history loaded from repository + current_input appended by FastAPI.
@@ -1241,7 +1090,7 @@ ChromaDB, vault ingestion pipeline, RAG, MEMORY node. Done.
 
 All tool nodes built with repository pattern and `user_id` scoping from day one. FastAPI skeleton built alongside the first node — all subsequent nodes go straight against the API, no retrofit later.
 
-**Branch:** `phase-3-tools` — merge to main only when phase is complete and verified.
+**Branch:** `phase-3` — merge to main only when phase is complete and verified.
 
 **`[pearlybaker only]` items require a vault and ChromaDB — do not attempt on nomadbaker.**
 
@@ -1256,7 +1105,9 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
   - [ ] `api/auth.py` gets its repository via the factory — never accesses storage directly
 - [ ] JWT auth — `POST /auth/login` endpoint. Request: `{"username": "...", "password": "..."}`. Response: `{"access_token": "...", "refresh_token": "...", "access_expires_at": "..."}`. Inserts row into `refresh_tokens` on success. Returns 401 on failure. Tracks failed attempts per IP — 5 failures in 10 minutes triggers `notify_admin`.
 - [ ] `/auth/refresh` endpoint — silent token renewal, called by `tui/auth.py`. Validates token hash against `refresh_tokens` table — rejects if revoked or expired.
-- [ ] `/auth/logout` endpoint — increments `token_version`, marks refresh token row `revoked = true`
+- [ ] `/auth/logout` endpoint — marks current device's refresh token row `revoked = true`. Does not increment `token_version` — other devices stay active.
+- [ ] `GET /profile` endpoint — returns `username`, `tier`, `assistant_name` for the authenticated user
+- [ ] `PATCH /profile` endpoint — updates `assistant_name`, returns updated profile. Pushes `profile` frame to all of the user's active connections.
 - [ ] `/auth/invite` endpoint — Admin only. Generates one-time invite token (48hr expiry), returns raw token to Admin
 - [ ] `/auth/register` endpoint — Open (invite token required). Validates token, creates user record, marks invite `used = true`
 - [ ] `users` table — fields: `username` (PK), `password_hash`, `tier`, `assistant_name`, `token_version`
@@ -1306,12 +1157,12 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
 - [ ] RESPONDER updated — reads `client_type` from state, checks `error` field, derives and sets `refresh` list on state from `intent` (RESPONDER is sole owner of `refresh`)
 - [ ] `MEMORY_RETRIEVE` node — queries ChromaDB, populates `retrieved_context` `[pearlybaker only]`
 - [ ] TUI rewritten — connects to FastAPI WebSocket instead of local LangGraph (only after FastAPI is verified working). Opens connection on startup, reconnects automatically on drop. Disables input field on `confirm_request` frame, re-enables on resolution.
-- [ ] TUI auth client (`tui/auth.py`) — token storage in `~/.jarvis/auth.json`, silent refresh, handles 401 token version mismatch, deletes `auth.json` on logout, login prompt if `auth.json` missing or refresh token expired/revoked
+- [ ] TUI auth client (`tui/auth.py`) — token storage in `~/.jarvis/auth.json`, silent refresh, handles 401 token version mismatch, deletes `auth.json` on logout, login prompt if `auth.json` missing or refresh token expired/revoked. Calls `GET /profile` on startup and after every login/refresh to populate `tier` and `assistant_name` in memory. Handles `profile` WebSocket frames by re-fetching `GET /profile`.
 - [ ] TUI listens for `done` frames and re-fetches panels listed in `refresh`
 - [ ] Unit tests alongside every node implementation
 - [ ] Pre-commit hook configured — `pytest tests/unit/` blocks commits on failure
 
-**Exit criteria:** JARVIS can search the web, manage tasks (create, update, complete, delete), run shell commands, switch into coding mode (single-agent), handle general conversation via CONVERSATION node, and respond to explicit memory queries via MEMORY node `[pearlybaker only]` — on nomadbaker, verify that the `memory` intent returns a clean ChromaDB unavailable error message. TUI connects to FastAPI via WebSocket, tokens stream word by word. Responses arrive as typed JSON frames. Tasks panel updates automatically when tasks are mutated — `GET /tasks` and `DELETE /tasks/{id}` endpoints verified working and TUI re-fetches on `refresh: ["tasks"]`. All data operations go through repository interfaces with `user_id` — including auth. Conversation history correctly written and loaded across multiple exchanges. Admin notified via ntfy on service failures. Secrets are env-var only. Full auth flow verified end to end: login produces a valid JWT, silent refresh works, logout revokes the token. Invite+register verified end to end: Admin generates an invite token via `POST /auth/invite`, a second user registers via `POST /auth/register` with that token, that user logs in and receives a valid JWT, and at minimum one WebSocket chat exchange completes successfully as that user with data correctly scoped to their `user_id`. No external services required to run in dev (memory/skills work deferred to pearlybaker). Queuing and interrupt/confirm contracts verified: queued messages receive `"One moment..."` status frame, non-confirm/cancel messages during interrupt are rejected with appropriate status frame, TUI disables input on `confirm_request`.
+**Exit criteria:** JARVIS can search the web, manage tasks (create, update, complete, delete), run shell commands, switch into coding mode (single-agent), handle general conversation via CONVERSATION node, and respond to explicit memory queries via MEMORY node `[pearlybaker only]` — on nomadbaker, verify that the `memory` intent returns a clean ChromaDB unavailable error message. TUI connects to FastAPI via WebSocket, tokens stream word by word. Responses arrive as typed JSON frames. Tasks panel updates automatically when tasks are mutated — `GET /tasks` and `DELETE /tasks/{id}` endpoints verified working and TUI re-fetches on `refresh: ["tasks"]`. All data operations go through repository interfaces with `user_id` — including auth. Conversation history correctly written and loaded across multiple exchanges. Admin notified via ntfy on service failures. Secrets are env-var only. Full auth flow verified end to end: login produces a valid JWT, `GET /profile` returns correct user data, `PATCH /profile` updates `assistant_name` and returns the updated profile, silent refresh works, logout revokes the token. Invite+register verified end to end: Admin generates an invite token via `POST /auth/invite`, a second user registers via `POST /auth/register` with that token, that user logs in and receives a valid JWT, and at minimum one WebSocket chat exchange completes successfully as that user with data correctly scoped to their `user_id`. No external services required to run in dev (memory/skills work deferred to pearlybaker). Queuing and interrupt/confirm contracts verified: queued messages receive `"One moment..."` status frame, non-confirm/cancel messages during interrupt are rejected with appropriate status frame, TUI disables input on `confirm_request`.
 
 ### Phase 3.5 — Coding Team + Skills System
 
@@ -1338,12 +1189,12 @@ FastAPI skeleton exists from Phase 3. This phase completes the multi-user platfo
 - [ ] All agent nodes accessible via API with tier gating
 - [ ] Per-user data scoping verified end-to-end
 - [ ] Refresh token rotation
-- [ ] User management endpoints (Admin only) — including `token_version` increment for forced deauth and tier changes
-- [ ] Assistant name hotswappable — update `assistant_name` + increment `token_version` atomically, takes effect at next request
-- [ ] Tier changes hotswappable — update `tier` + increment `token_version` atomically, takes effect at next request
+- [ ] User management endpoints (Admin only) — `PATCH /admin/users/{username}` for tier changes and forced deauth (`token_version` increment)
+- [ ] Assistant name hotswappable — `PATCH /profile` updates DB, server pushes `profile` frame to all active connections, clients re-fetch `GET /profile`
+- [ ] Tier changes hotswappable — admin updates DB via `PATCH /admin/users/{username}`, server pushes `profile` frame to all active connections, clients re-fetch `GET /profile`
 - [ ] Multiple concurrent users verified
 
-**Exit criteria:** Three test users exist — one of each tier (admin, power, standard) — all created via invite flow except the admin. All three can chat simultaneously with fully isolated data. Tier gating verified (standard user cannot access code or system nodes). Assistant names and tiers are hotswappable and take effect immediately via token invalidation.
+**Exit criteria:** Three test users exist — one of each tier (admin, power, standard) — all created via invite flow except the admin. All three can chat simultaneously with fully isolated data. Tier gating verified (standard user cannot access code or system nodes). Assistant names and tiers are hotswappable — changes propagate to all active connections via `profile` WebSocket push within seconds, no re-login required.
 
 ### Phase 5 — Postgres Migration
 - [ ] `PostgresTaskRepository` full implementation

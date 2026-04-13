@@ -53,7 +53,6 @@ def _build_access_token(user: User, client_type: str) -> tuple[str, str]:
     expires_at = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     payload = {
         "user_id": user.username,
-        "tier": user.tier,
         "client_type": client_type,
         "token_version": user.token_version,
         "exp": expires_at,

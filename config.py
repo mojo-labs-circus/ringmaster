@@ -52,6 +52,8 @@ LOG_ERROR_THRESHOLD: int = _config["maintenance"]["log_error_threshold"]
 
 # Logging
 LOG_PATH: str           = str(Path(_config["logging"]["path"]).expanduser())
+LOG_MAX_BYTES: int      = _config["logging"]["max_bytes"]
+LOG_BACKUP_COUNT: int   = _config["logging"]["backup_count"]
 
 # Memory
 VAULT_BASE: str         = str(Path(_config["memory"]["vault_base"]).expanduser())

@@ -54,7 +54,9 @@ coding_team:
 
 status_messages:
   router: "Thinking..."
+  planner: ""
   memory_retrieve: "Searching memory..."
+  orchestrator: ""
   conversation: ""
   memory: ""
   web: "Searching the web..."

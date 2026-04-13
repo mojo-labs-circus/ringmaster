@@ -1,7 +1,7 @@
 # JARVIS — Project Specification
 > Personal AI Assistant Platform — Fully Local, Server-Hosted, Multi-User
 >
-> *Last updated: 2026-04-12 (rev 24)*
+> *Last updated: 2026-04-13 (rev 25)*
 
 ---
 
@@ -647,6 +647,13 @@ class JarvisState(TypedDict):
     # Interrupt / confirm
     interrupt_payload: dict | None  # written by node before calling interrupt() — FastAPI builds confirm_request frame from this. Zero-initialised to None by FastAPI.
 
+    # Multi-step execution
+    step_plan: list[dict] | None    # produced by PLANNER — list of Step dicts. Zero-initialised to None by FastAPI.
+    step_results: list[dict]        # accumulated step outcomes written by ORCHESTRATOR after each agent node completes.
+                                    # Each entry: {"step_id": str, "status": "success"|"failure"|"blocked",
+                                    # "response": str, "blocked_by": str|None, "reason": str|None}.
+                                    # Zero-initialised to [] by FastAPI.
+
     # Refresh signals
     refresh: list[str]              # populated by RESPONDER only — read by FastAPI to build done frame. Zero-initialised to [] by FastAPI.
 ```
@@ -655,11 +662,11 @@ class JarvisState(TypedDict):
 
 ### ROUTER
 - Model: `mistral:7b`
-- Classifies every input into: `memory | tasks | code | web | system | conversation`
-- Routes to the corresponding agent node — MEMORY, TASKS, CODE, WEB, SYSTEM, or CONVERSATION. RESPONDER is never a routing target — it is always a formatter only.
-- Checks user tier before routing — Standard users cannot be routed to `code` or `system`
-- Checks personal skills collection (`skills_{user_id}`) then shared skills collection (`skills_shared`) for relevant procedural context — graceful no-op if either collection does not exist yet. Personal skills path derived at runtime: `{memory.vault_base}/{user_id}/02-skills/approved/`. Before reading from either skills path, ROUTER checks whether the directory exists on disk — if it doesn't, that source is treated as empty with no error, matching the behaviour of a missing ChromaDB collection. The skills check is intent-scoped — ROUTER fetches skills relevant to the classified intent, not a general sweep. This means `skill_context` on state is already targeted at the destination node before it runs.
-- Sets `needs_memory: bool` on state — controls whether `MEMORY_RETRIEVE` is invoked. Does not control whether `memory/persist.py` runs — that fires unconditionally after every exchange.
+- Classifies every input into one or more intents: `memory | tasks | code | web | system | conversation`
+- Classification only — ROUTER does not produce a step plan. Step decomposition and dependency inference is PLANNER's responsibility.
+- Checks user tier — Standard users cannot be classified into `code` or `system`. If a Standard user's message maps to a tier-gated intent, ROUTER downgrades it to `conversation` and sets a tier-gate flag on state so RESPONDER can explain the limitation.
+- Checks personal skills collection (`skills_{user_id}`) then shared skills collection (`skills_shared`) for relevant procedural context — graceful no-op if either collection does not exist yet. Personal skills path derived at runtime: `{memory.vault_base}/{user_id}/02-skills/approved/`. Before reading from either skills path, ROUTER checks whether the directory exists on disk — if it doesn't, that source is treated as empty with no error, matching the behaviour of a missing ChromaDB collection. The skills check is intent-scoped — ROUTER fetches skills relevant to the classified intent(s), not a general sweep. This means `skill_context` on state is already targeted at the destination node(s) before they run.
+- Sets `needs_memory: bool` on state — controls whether `MEMORY_RETRIEVE` is invoked. If any classified intent requires memory, `needs_memory` is set to `true`. Does not control whether `memory/persist.py` runs — that fires unconditionally after every exchange.
 - MEMORY is flagged as needed for: `memory`, `conversation`, `code` intents
 - MEMORY is flagged as needed for `tasks` intent when the request involves reasoning, prioritisation, summarisation, or advice about the task list — e.g. "what should I focus on today?", "am I on track this week?"
 - MEMORY is skipped for `tasks` intent when the request is a pure data mutation or retrieval with no reasoning required — e.g. "add a task", "mark that done", "list my tasks"
@@ -667,6 +674,19 @@ class JarvisState(TypedDict):
 - `memory` intent always sets `needs_memory: true` — the MEMORY node operates on `retrieved_context` already populated by MEMORY_RETRIEVE rather than querying ChromaDB itself
 - **ROUTER failure handling:** if the inference call fails or times out, ROUTER retries once via `tools/llm.py`. If the retry also fails, it raises to the global exception handler — clean error frame to client, admin notified via ntfy. `tools/llm.py`'s cross-model fallback logic does not apply to ROUTER: the router model (`mistral:7b`) and the fallback model are the same, so there is nothing to fall back to. A successful retry is logged at `WARNING` level.
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["router"]` is set — ROUTER itself does not send frames
+
+### PLANNER
+- Model: `REASONING_MODEL` — dependency inference requires genuine reasoning, not just classification
+- Always runs after ROUTER — single-intent messages produce a one-step plan and exit immediately with negligible overhead
+- Receives ROUTER's classified intent(s) and produces a `StepPlan` — a list of `Step` objects written to `step_plan` on state
+- Each `Step` has:
+  - `id: str` — short unique identifier within this plan (e.g. `"delete_ring"`, `"add_shampoo"`)
+  - `intent: str` — the node to dispatch to (`tasks | memory | code | web | system | conversation`)
+  - `description: str` — plain-language description of this step, used in tier-aware status messages
+  - `depends_on: list[str]` — IDs of steps that must succeed before this one runs. Empty list means no dependencies.
+- Dependency inference is the key responsibility — PLANNER determines which steps are independent and which must wait on others based on semantic reasoning about the user's message
+- On PLANNER failure: sets `error` on state — graph routes immediately to RESPONDER per the universal error routing rule
+- Node-entry status frame sent by FastAPI if `STATUS_MESSAGES["planner"]` is set
 
 ### MEMORY_RETRIEVE
 - Only invoked when ROUTER sets `needs_memory: true`
@@ -678,13 +698,30 @@ class JarvisState(TypedDict):
 - **Unrecognised `active_project`:** if `active_project` is set but no ChromaDB chunks are found tagged with that project name, MEMORY_RETRIEVE does not set `error` — it treats this as a graceful no-op and returns unfiltered results instead. Before doing so it writes a tier-aware `status_message`: Admin: `"No chunks found for project '{active_project}' in ChromaDB — returning unfiltered results"`, Power: `"Couldn't find project '{active_project}' — showing full memory instead"`, Standard: `"I couldn't find that project — showing everything I know instead"`. Inference continues normally with the unfiltered context.
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["memory_retrieve"]` is set — MEMORY_RETRIEVE itself does not send frames. The node writes a mid-node `status_message` immediately before querying ChromaDB — content is tier-aware (Admin: `"Querying memory_{user_id} and memory_shared in ChromaDB..."`, Power: `"Searching your memory..."`, Standard: `"One moment..."`)
 
+### ORCHESTRATOR
+- Executes the `StepPlan` from state reactively — one step at a time, result of each step informs the next
+- Each iteration:
+  1. Find all steps whose `depends_on` are fully satisfied (all named steps completed successfully)
+  2. Execute the next ready step by dispatching to the appropriate agent node
+  3. After the agent node completes, save `response` into `step_results` before looping
+  4. Mark the step `success` or `failure` based on whether `error` was set on state
+  5. Clear `error` and `response` on state before the next iteration
+- A failed step marks all steps with `depends_on` pointing to it as `blocked` — they are skipped
+- Independent steps (no `depends_on` pointing to a failed step) always run regardless of other failures
+- Loops until no ready or pending steps remain, then routes to RESPONDER
+- Writes a tier-aware `status_message` before dispatching each step:
+  - Admin: `"Step 2/3: Dispatching to TASKS — add_shampoo (no dependencies)"`
+  - Power: `"Step 2 of 3: Adding your task..."`
+  - Standard: `"Adding your task... (2 of 3)"`
+- Node-entry status frame sent by FastAPI if `STATUS_MESSAGES["orchestrator"]` is set
+
 ### Graph Flow
 
 ```
-ROUTER → MEMORY_RETRIEVE → [agent node] → RESPONDER
+ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORCHESTRATOR → ... → RESPONDER
 ```
 
-`MEMORY_RETRIEVE` is skipped when `needs_memory: false`. The agent node is whichever node ROUTER selected: TASKS, CODE, WEB, SYSTEM, CONVERSATION, or MEMORY. The graph ends at RESPONDER — there is no case where RESPONDER acts as an agent node, it is always a pure formatter. After the graph completes, FastAPI sends the `done` frame and then fires `memory/persist.py` as an asyncio background task unconditionally after every exchange.
+`MEMORY_RETRIEVE` is skipped when `needs_memory: false`. ORCHESTRATOR loops back through agent nodes until the `StepPlan` is exhausted. The graph ends at RESPONDER — there is no case where RESPONDER acts as an agent node, it is always a pure formatter. After the graph completes, FastAPI sends the `done` frame and then fires `memory/persist.py` as an asyncio background task unconditionally after every exchange.
 
 ### CONVERSATION
 - The default node for general chat — the most-used node for Standard tier users
@@ -802,11 +839,13 @@ loop (configurable max) or surface to user for a decision
 - The client will never receive `token` frames before a `confirm_request` frame from SYSTEM — all token streaming happens after confirmation, or not at all on cancel. `status_message` frames may arrive before the `confirm_request` (the "Composing command..." phase) and after it (the "Executing now..." phase).
 
 ### RESPONDER
-- Reads `client_type` from `JarvisState` — formats `response` into `formatted_response` accordingly
+- Reads `client_type` from `JarvisState` — formats into `formatted_response` accordingly
   - `tui`: plain text with Textual markup
   - `web` / `mobile`: markdown or structured JSON for frontend rendering
 - Checks `error` field on state first — if set, writes a clean error message to `formatted_response` instead of a normal response
-- Sets `refresh` list on state derived from `intent` — RESPONDER is the sole owner of the `refresh` field, no other node writes to it
+- **Single-step:** formats `response` directly into `formatted_response` as normal
+- **Multi-step:** when `step_results` is non-empty, summarises all steps into a single coherent `formatted_response` — reports what succeeded, what failed, and what was blocked and why. Tier-aware: Admin gets full detail per step, Standard gets a plain-language summary of the overall outcome.
+- Sets `refresh` list on state derived from the intents that executed — RESPONDER is the sole owner of the `refresh` field, no other node writes to it. For multi-step, unions the refresh targets from all successful steps.
 - Does not send WebSocket frames — FastAPI reads `formatted_response` and `refresh` from final state and sends the `done` frame
 - No node-entry status frame by default (`STATUS_MESSAGES["responder"]` is empty)
 

@@ -22,12 +22,7 @@
 See `jarvis-dev-context.md` — session log and full phase checklist.
 
 ## Current Task
-FastAPI skeleton and tools complete. Spec updated to rev 25 — DAG orchestration architecture added (PLANNER + ORCHESTRATOR nodes). Next session starts with a full spec audit of the new orchestration section before any implementation.
-
-After audit, implementation order:
-- TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
-- Then remaining tool nodes (see phase checklist in jarvis-dev-context.md)
-- PLANNER and ORCHESTRATOR nodes come after individual agent nodes are working
+Spec audit done (rev 26), codebase clean. Next session: TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`.
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the phase checklist.

@@ -70,7 +70,7 @@
 - [x] `POST /auth/register` — open (invite token required), creates user, marks invite used
 - [x] `db/schema.py` — `create_tables()`, called from FastAPI lifespan on startup (sqlite only)
 - [x] `scripts/seed_db.py` — idempotent, interactive password prompt, creates `clarkehines` admin only
-- [ ] `JarvisState` updated — all fields present, node-populated fields zero-initialised by FastAPI
+- [x] `JarvisState` updated — all fields present, node-populated fields zero-initialised by FastAPI
 - [ ] `token_version` validated against DB on every request and every WebSocket message
 - [ ] FastAPI uses `astream_events` — node-entry status frames from `STATUS_MESSAGES`, mid-node `status_message` forwarded as `status` frames
 - [ ] WebSocket streaming — typed JSON frames with `message_id`, one invocation at a time per connection, queue with `"One moment..."` acknowledgement

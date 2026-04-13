@@ -74,7 +74,7 @@
 - [ ] `token_version` validated against DB on every request and every WebSocket message
 - [ ] FastAPI uses `astream_events` — node-entry status frames from `STATUS_MESSAGES`, mid-node `status_message` forwarded as `status` frames
 - [ ] WebSocket streaming — typed JSON frames with `message_id`, one invocation at a time per connection, queue with `"One moment..."` acknowledgement
-- [ ] Conversation history repository — `db/history/` (mirrors `db/tasks/` structure)
+- [x] Conversation history repository — `db/history/` (mirrors `db/tasks/` structure)
 - [ ] History load → inject into state bounded by `CONTEXT_WINDOW_BUDGET`, FastAPI appends `current_input` as final entry
 - [ ] History write back after invocation
 - [x] `main.py` — `dev` flag in `config.yaml`/`config.py`, drives `reload=` and console log handler

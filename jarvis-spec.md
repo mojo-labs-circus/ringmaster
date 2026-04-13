@@ -829,7 +829,7 @@ def load(self, user_id: str) -> list[dict]:
     # Bounded by CONTEXT_WINDOW_BUDGET tokens — oldest exchanges dropped first
     # Reads CONTEXT_WINDOW_BUDGET from config internally
 
-def save(self, user_id: str, role: str, content: str) -> None:
+def save(self, entry: HistoryEntry) -> None:
     # Appends a single exchange turn to the history for this user
 ```
 

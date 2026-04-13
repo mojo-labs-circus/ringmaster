@@ -11,7 +11,7 @@ from pathlib import Path
 
 from config import LOG_BACKUP_COUNT, LOG_MAX_BYTES, LOG_PATH, SERVER_DEV
 
-_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s — %(message)s"
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s — %(message)s"
 
 
 def configure_logging() -> None:
@@ -22,7 +22,7 @@ def configure_logging() -> None:
         maxBytes=LOG_MAX_BYTES,
         backupCount=LOG_BACKUP_COUNT,
     )
-    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
 
     logging.root.setLevel(logging.INFO)
     logging.root.addHandler(file_handler)
@@ -30,5 +30,5 @@ def configure_logging() -> None:
     # In dev, also emit to stdout so you can watch logs without tailing the file.
     if SERVER_DEV:
         console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+        console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
         logging.root.addHandler(console_handler)

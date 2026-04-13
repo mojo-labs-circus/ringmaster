@@ -27,6 +27,21 @@ class AuthRepository(ABC):
         # Called on PATCH /profile — updates the display name without touching token_version
         ...
 
+    @abstractmethod
+    def disable_user(self, username: str) -> None:
+        # Called on forced deauth — blocks login and refresh regardless of credentials
+        ...
+
+    @abstractmethod
+    def enable_user(self, username: str) -> None:
+        # Called on password reset token consumption — re-enables the account
+        ...
+
+    @abstractmethod
+    def update_password(self, username: str, password_hash: str) -> None:
+        # Called on password reset and self-service password change
+        ...
+
     # --- Refresh Tokens ---
 
     @abstractmethod

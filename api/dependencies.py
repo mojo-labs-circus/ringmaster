@@ -14,6 +14,7 @@ from db.auth.repository import AuthRepository
 class ConnectedClient:
     user: User
     client_type: str
+    websocket: WebSocket
 
 
 _bearer = HTTPBearer()
@@ -44,6 +45,9 @@ def _get_user_from_payload(payload: dict, repo: AuthRepository, http_status: int
 
     if user is None:
         raise HTTPException(status_code=http_status, detail="User not found")
+
+    if user.disabled:
+        raise HTTPException(status_code=http_status, detail="Account disabled")
 
     # token_version mismatch means forced deauth has occurred since this token was issued
     if user.token_version != token_version:
@@ -92,7 +96,7 @@ def get_connected_client_ws(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid client_type")
 
     user = _get_user_from_payload(payload, repo, status.HTTP_403_FORBIDDEN)
-    return ConnectedClient(user=user, client_type=client_type)
+    return ConnectedClient(user=user, client_type=client_type, websocket=websocket)
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

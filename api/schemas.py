@@ -36,13 +36,14 @@ class LogoutRequest(BaseModel):
 # --- Invite ---
 
 class InviteRequest(BaseModel):
+    type: str = "invite"        # invite | password_reset
     username: str
-    tier: str           # admin | power | standard
-    assistant_name: str
+    tier: str | None = None     # required for invite, omitted for password_reset
+    assistant_name: str | None = None  # required for invite, omitted for password_reset
 
 
 class InviteResponse(BaseModel):
-    token: str  # raw invite token — only time it exists in plaintext, share immediately
+    token: str  # raw token — only time it exists in plaintext, share immediately
 
 
 # --- Register ---
@@ -50,6 +51,20 @@ class InviteResponse(BaseModel):
 class RegisterRequest(BaseModel):
     token: str      # raw invite token
     password: str
+
+
+# --- Password Reset ---
+
+class ResetRequest(BaseModel):
+    token: str      # raw password reset token
+    password: str   # new password — rejected if it matches the current password_hash
+
+
+# --- Password Change (self-service) ---
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 # --- Profile ---

@@ -31,7 +31,8 @@ def _create_auth_tables() -> None:
             password_hash  TEXT NOT NULL,
             tier           TEXT NOT NULL,
             assistant_name TEXT NOT NULL,
-            token_version  INTEGER NOT NULL DEFAULT 0
+            token_version  INTEGER NOT NULL DEFAULT 0,
+            disabled       INTEGER NOT NULL DEFAULT 0
         )
     """)
 
@@ -49,9 +50,10 @@ def _create_auth_tables() -> None:
         CREATE TABLE IF NOT EXISTS invites (
             id             INTEGER PRIMARY KEY,
             token_hash     TEXT NOT NULL UNIQUE,
+            type           TEXT NOT NULL DEFAULT 'invite',
             username       TEXT NOT NULL,
-            tier           TEXT NOT NULL,
-            assistant_name TEXT NOT NULL,
+            tier           TEXT,
+            assistant_name TEXT,
             expires_at     TEXT NOT NULL,
             used           INTEGER NOT NULL DEFAULT 0
         )

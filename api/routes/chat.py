@@ -38,7 +38,7 @@ async def chat_ws(
     token_version_at_connect = user.token_version
     logger.info("Client connected: %s via %s", user.username, client.client_type)
 
-    connections.register(user.username, websocket)
+    connections.register(user.username, client)
     is_busy = False
 
     try:
@@ -171,4 +171,4 @@ async def chat_ws(
         logger.info("Client disconnected: %s via %s", user.username, client.client_type)
 
     finally:
-        connections.deregister(user.username, websocket)
+        connections.deregister(user.username, client)

@@ -18,9 +18,11 @@ from api.schemas import (
     InviteResponse,
     LoginRequest,
     LogoutRequest,
+    PasswordChangeRequest,
     RefreshRequest,
     RefreshResponse,
     RegisterRequest,
+    ResetRequest,
     TokenResponse,
 )
 from config import (
@@ -85,6 +87,9 @@ def login(
         _record_failed_attempt(ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    if user.disabled:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account disabled. Contact admin to restore access.")
+
     raw_refresh = secrets.token_urlsafe(32)
     repo.create_refresh_token(RefreshToken(
         id=None,
@@ -120,6 +125,9 @@ def refresh(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    if user.disabled:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account disabled. Contact admin to restore access.")
+
     # Re-read tier, assistant_name, token_version from the live record —
     # picks up any changes made since original login
     access_token, access_expires_at = _build_access_token(user, body.client_type)
@@ -142,10 +150,21 @@ def invite(
     repo: AuthRepository = Depends(get_auth_repository),
     _: User = Depends(require_admin),
 ) -> InviteResponse:
+    if body.type not in ("invite", "password_reset"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token type")
+
+    if body.type == "invite" and (body.tier is None or body.assistant_name is None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tier and assistant_name are required for invite tokens")
+
+    if body.type == "password_reset":
+        if repo.get_user(body.username) is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
+
     raw_token = secrets.token_urlsafe(32)
     repo.create_invite(Invite(
         id=None,
         token_hash=_hash_token(raw_token),
+        type=body.type,
         username=body.username,
         tier=body.tier,
         assistant_name=body.assistant_name,
@@ -162,7 +181,7 @@ def register(
 ) -> None:
     stored_invite = repo.get_invite_by_hash(_hash_token(body.token))
 
-    if stored_invite is None or stored_invite.used:
+    if stored_invite is None or stored_invite.used or stored_invite.type != "invite":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid invite token")
 
     # SQLite stores datetimes without timezone — attach UTC before comparing
@@ -176,6 +195,48 @@ def register(
         tier=stored_invite.tier,
         assistant_name=stored_invite.assistant_name,
         token_version=0,
+        disabled=False,
     ))
     # Mark invite used after user creation — if create_user fails, invite stays valid
     repo.mark_invite_used(_hash_token(body.token))
+
+
+@router.post("/reset", status_code=status.HTTP_200_OK)
+def reset_password(
+    body: ResetRequest,
+    repo: AuthRepository = Depends(get_auth_repository),
+) -> None:
+    stored = repo.get_invite_by_hash(_hash_token(body.token))
+
+    if stored is None or stored.used or stored.type != "password_reset":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
+
+    if stored.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reset token expired")
+
+    user = repo.get_user(stored.username)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
+
+    # Reject the new password if it matches the compromised one
+    if bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must differ from current password")
+
+    new_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+    repo.update_password(stored.username, new_hash)
+    repo.enable_user(stored.username)
+    # Mark token used after updates — if either update fails, token stays valid for retry
+    repo.mark_invite_used(_hash_token(body.token))
+
+
+@router.post("/password", status_code=status.HTTP_200_OK)
+def change_password(
+    body: PasswordChangeRequest,
+    repo: AuthRepository = Depends(get_auth_repository),
+    user: User = Depends(get_current_user),
+) -> None:
+    if not bcrypt.checkpw(body.current_password.encode(), user.password_hash.encode()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password incorrect")
+
+    new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    repo.update_password(user.username, new_hash)

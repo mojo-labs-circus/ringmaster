@@ -18,7 +18,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
-            "SELECT username, password_hash, tier, assistant_name, token_version "
+            "SELECT username, password_hash, tier, assistant_name, token_version, disabled "
             "FROM users WHERE username = ?",
             (username,),
         )
@@ -32,15 +32,16 @@ class SQLiteAuthRepository(AuthRepository):
             tier=row[2],
             assistant_name=row[3],
             token_version=row[4],
+            disabled=bool(row[5]),
         )
 
     def create_user(self, user: User) -> None:
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
-            "INSERT INTO users (username, password_hash, tier, assistant_name, token_version) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (user.username, user.password_hash, user.tier, user.assistant_name, user.token_version),
+            "INSERT INTO users (username, password_hash, tier, assistant_name, token_version, disabled) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user.username, user.password_hash, user.tier, user.assistant_name, user.token_version, int(user.disabled)),
         )
         connection.commit()
         connection.close()
@@ -62,6 +63,27 @@ class SQLiteAuthRepository(AuthRepository):
             "UPDATE users SET assistant_name = ? WHERE username = ?",
             (assistant_name, username),
         )
+        connection.commit()
+        connection.close()
+
+    def disable_user(self, username: str) -> None:
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        cursor.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
+        connection.commit()
+        connection.close()
+
+    def enable_user(self, username: str) -> None:
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        cursor.execute("UPDATE users SET disabled = 0 WHERE username = ?", (username,))
+        connection.commit()
+        connection.close()
+
+    def update_password(self, username: str, password_hash: str) -> None:
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (password_hash, username))
         connection.commit()
         connection.close()
 
@@ -116,10 +138,11 @@ class SQLiteAuthRepository(AuthRepository):
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
-            "INSERT INTO invites (token_hash, username, tier, assistant_name, expires_at, used) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO invites (token_hash, type, username, tier, assistant_name, expires_at, used) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 invite.token_hash,
+                invite.type,
                 invite.username,
                 invite.tier,
                 invite.assistant_name,
@@ -136,7 +159,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
-            "SELECT id, token_hash, username, tier, assistant_name, expires_at, used "
+            "SELECT id, token_hash, type, username, tier, assistant_name, expires_at, used "
             "FROM invites WHERE token_hash = ?",
             (token_hash,),
         )
@@ -147,11 +170,12 @@ class SQLiteAuthRepository(AuthRepository):
         return Invite(
             id=row[0],
             token_hash=row[1],
-            username=row[2],
-            tier=row[3],
-            assistant_name=row[4],
-            expires_at=datetime.fromisoformat(row[5]),
-            used=bool(row[6]),
+            type=row[2],
+            username=row[3],
+            tier=row[4],
+            assistant_name=row[5],
+            expires_at=datetime.fromisoformat(row[6]),
+            used=bool(row[7]),
         )
 
     def mark_invite_used(self, token_hash: str) -> None:

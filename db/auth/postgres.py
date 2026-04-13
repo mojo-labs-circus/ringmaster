@@ -19,6 +19,15 @@ class PostgresAuthRepository(AuthRepository):
     def update_assistant_name(self, username: str, assistant_name: str) -> None:
         raise NotImplementedError("PostgresAuthRepository is not implemented until Phase 5")
 
+    def disable_user(self, username: str) -> None:
+        raise NotImplementedError("PostgresAuthRepository is not implemented until Phase 5")
+
+    def enable_user(self, username: str) -> None:
+        raise NotImplementedError("PostgresAuthRepository is not implemented until Phase 5")
+
+    def update_password(self, username: str, password_hash: str) -> None:
+        raise NotImplementedError("PostgresAuthRepository is not implemented until Phase 5")
+
     # --- Refresh Tokens ---
 
     def create_refresh_token(self, token: RefreshToken) -> RefreshToken:

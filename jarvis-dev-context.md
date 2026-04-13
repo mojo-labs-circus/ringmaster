@@ -61,7 +61,7 @@
 ## Phase 3 Checklist
 
 **FastAPI skeleton first — before any tool node:**
-- [ ] Minimal FastAPI server — single `/chat` WebSocket endpoint
+- [x] Minimal FastAPI server — single `/chat` WebSocket endpoint
 - [x] Auth repository — `db/auth/` (models, repository, sqlite, postgres stub, factory)
 - [x] `POST /auth/login` — returns access + refresh tokens, inserts `refresh_tokens` row
 - [x] `POST /auth/refresh` — validates token hash, issues new access token with current user values
@@ -71,18 +71,18 @@
 - [x] `db/schema.py` — `create_tables()`, called from FastAPI lifespan on startup (sqlite only)
 - [x] `scripts/seed_db.py` — idempotent, interactive password prompt, creates `clarkehines` admin only
 - [x] `JarvisState` updated — all fields present, node-populated fields zero-initialised by FastAPI
-- [ ] `token_version` validated against DB on every request and every WebSocket message
-- [ ] FastAPI uses `astream_events` — node-entry status frames from `STATUS_MESSAGES`, mid-node `status_message` forwarded as `status` frames
-- [ ] WebSocket streaming — typed JSON frames with `message_id`, one invocation at a time per connection, busy messages dropped with status frame (no queue)
+- [x] `token_version` validated against DB on every request and every WebSocket message
+- [x] FastAPI uses `astream_events` — node-entry status frames from `STATUS_MESSAGES`, mid-node `status_message` forwarded as `status` frames
+- [x] WebSocket streaming — typed JSON frames with `message_id`, one invocation at a time per connection, busy messages dropped with status frame (no queue)
 - [x] Conversation history repository — `db/history/` (mirrors `db/tasks/` structure)
-- [ ] History load → inject into state bounded by `CONTEXT_WINDOW_BUDGET`, FastAPI appends `current_input` as final entry
-- [ ] History write back after invocation
+- [x] History load → inject into state bounded by `CONTEXT_WINDOW_BUDGET`, FastAPI appends `current_input` as final entry
+- [x] History write back after invocation
 - [x] `main.py` — `dev` flag in `config.yaml`/`config.py`, drives `reload=` and console log handler
 - [x] `notifications/notify.py` — `notify_admin(error_class, message)`, 10-min cooldown keyed on `(error_class, message)` tuple
 - [x] `RotatingFileHandler` configured in `main.py` — path from `LOG_PATH`, 10 MB / 5 files
 - [x] FastAPI global exception handler wired to `notify_admin`
 - [ ] Daily maintenance job — `maintenance/cleanup.py` (expired tokens, invites, old history, error log threshold)
-- [ ] **Verify FastAPI end to end with throwaway test client before rewriting TUI**
+- [x] **Verify FastAPI end to end with throwaway test client before rewriting TUI**
 
 **Then tool nodes:**
 - [ ] `tools/llm.py` — Ollama wrapper, streaming, timeout, fallback logic
@@ -150,3 +150,4 @@
 | 2026-04-12 | Auth repository complete — `db/auth/` (models, repository, sqlite, postgres stub, factory) + `db/schema.py`. Spec updated: `...` convention for abstract methods, task `id` changed to integer, priority required on creation, logout clears UI immediately. `scripts/seed_db.py` written and verified — `clarkehines` admin created. Next: auth endpoints. |
 | 2026-04-12 | Auth endpoints written — `api/auth.py`, `api/schemas.py`, `api/dependencies.py`. Major spec decisions: `assistant_name` removed from JWT (moved to `GET /profile`), `token_version` increment reserved for forced deauth only, normal logout revokes current device only, brute force config keys added. Cleanup pass needed next session — see CLAUDE.md current task. |
 | 2026-04-12 | Auth cleanup pass complete — `get_current_user` imported in `auth.py`, `assistant_name` removed from `_build_access_token` payload, `ProfileResponse` + `ProfileUpdateRequest` added to `schemas.py`, `GET /profile` + `PATCH /profile` added in `api/routes/profile.py`, both auth and profile routers wired into `server.py`. Profile frame `message_id` uses `__push__` sentinel. Next: `main.py` dev flag. |
+| 2026-04-13 | Chat WebSocket endpoint complete and verified end-to-end. Refactored `dependencies.py` — `_decode_token` + `_get_user_from_payload` split so JWT decoded once, `ConnectedClient` dataclass + `get_connected_client_ws` added for WebSocket routes needing both user and client_type. Added `api/connections.py` — connection registry for profile push. Wrote full `chat_ws` — auth, per-message token_version check, busy-drop, JarvisState construction, `astream_events` loop, history load/write. Moved `api/auth.py` → `api/routes/auth.py` — all routes in routes/. Extracted `logging_config.py` from `main.py` and added FastAPI lifespan to fix logging in uvicorn reload mode. End-to-end verified with `scripts/test_chat_ws.py`. Next: `tools/tokens.py`, then daily maintenance job, then tool nodes. |

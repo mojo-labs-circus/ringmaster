@@ -23,16 +23,15 @@ See `jarvis-dev-context.md` — session log and full phase checklist.
 ## Current Task
 FastAPI skeleton items remaining before tool nodes:
 
-- `JarvisState` updated — all fields present, node-populated fields zero-initialised by FastAPI
-- `token_version` validated against DB on every request and every WebSocket message
-- Minimal FastAPI server — single `/chat` WebSocket endpoint (streaming, typed JSON frames, queue)
-- Conversation history repository — `db/history/`
-- History load/write + context window budget
+- `tools/tokens.py` — token counting so `history_repo.load()` can enforce `CONTEXT_WINDOW_BUDGET`
+- Daily maintenance job — `maintenance/cleanup.py`
+- Then tool nodes (see phase checklist in jarvis-dev-context.md)
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the phase checklist.
 - For feature additions and architecture skeleton changes: verify against spec exit criteria and update these files before moving on. For pure data layer boilerplate: comprehension check is sufficient — integration verification comes with the next meaningful piece.
 - Never add `Co-Authored-By: Claude` or any Claude attribution to commit messages.
+- At the end of every session: update `CLAUDE.md` (Current Task, Project Structure if changed) and `jarvis-dev-context.md` (tick completed checklist items, add session log entry). Commit and push these updates so the next session starts with accurate context.
 
 ## Standing Rules — Follow These Every Session
 
@@ -95,6 +94,7 @@ not a UUID.
     ~/projects/jarvis/
     ├── config.yaml
     ├── config.py
+    ├── logging_config.py
     ├── main.py
     ├── jarvis-spec.md
     ├── .env
@@ -102,11 +102,13 @@ not a UUID.
     ├── CLAUDE.md
     ├── api/
     │   ├── server.py
-    │   ├── auth.py
     │   ├── schemas.py
     │   ├── dependencies.py
+    │   ├── connections.py
     │   └── routes/
+    │       ├── auth.py
     │       ├── chat.py
+    │       ├── profile.py
     │       ├── tasks.py
     │       └── memory.py
     ├── db/

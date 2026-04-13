@@ -81,12 +81,13 @@
 - [x] `notifications/notify.py` — `notify_admin(error_class, message)`, 10-min cooldown keyed on `(error_class, message)` tuple
 - [x] `RotatingFileHandler` configured in `main.py` — path from `LOG_PATH`, 10 MB / 5 files
 - [x] FastAPI global exception handler wired to `notify_admin`
-- [ ] Daily maintenance job — `maintenance/cleanup.py` (expired tokens, invites, old history, error log threshold)
+- [x] Daily maintenance job — `maintenance/cleanup.py` (expired tokens, invites, old history, error log threshold)
 - [x] **Verify FastAPI end to end with throwaway test client before rewriting TUI**
 
 **Then tool nodes:**
-- [ ] `tools/llm.py` — Ollama wrapper, streaming, timeout, fallback logic
-- [ ] `tools/tokens.py` — token counting for history budget
+- [x] `tools/llm.py` — Ollama wrapper, streaming, fallback logic, `StreamResult` dataclass
+- [x] `tools/tokens.py` — token counting for history budget
+- [ ] Full spec audit of DAG orchestration section (PLANNER + ORCHESTRATOR) — next session
 - [ ] TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
 - [ ] CONVERSATION node — general chat, all tiers
 - [ ] WEB node + `tools/search.py` (DuckDuckGo + Playwright)
@@ -151,3 +152,4 @@
 | 2026-04-12 | Auth endpoints written — `api/auth.py`, `api/schemas.py`, `api/dependencies.py`. Major spec decisions: `assistant_name` removed from JWT (moved to `GET /profile`), `token_version` increment reserved for forced deauth only, normal logout revokes current device only, brute force config keys added. Cleanup pass needed next session — see CLAUDE.md current task. |
 | 2026-04-12 | Auth cleanup pass complete — `get_current_user` imported in `auth.py`, `assistant_name` removed from `_build_access_token` payload, `ProfileResponse` + `ProfileUpdateRequest` added to `schemas.py`, `GET /profile` + `PATCH /profile` added in `api/routes/profile.py`, both auth and profile routers wired into `server.py`. Profile frame `message_id` uses `__push__` sentinel. Next: `main.py` dev flag. |
 | 2026-04-13 | Chat WebSocket endpoint complete and verified end-to-end. Refactored `dependencies.py` — `_decode_token` + `_get_user_from_payload` split so JWT decoded once, `ConnectedClient` dataclass + `get_connected_client_ws` added for WebSocket routes needing both user and client_type. Added `api/connections.py` — connection registry for profile push. Wrote full `chat_ws` — auth, per-message token_version check, busy-drop, JarvisState construction, `astream_events` loop, history load/write. Moved `api/auth.py` → `api/routes/auth.py` — all routes in routes/. Extracted `logging_config.py` from `main.py` and added FastAPI lifespan to fix logging in uvicorn reload mode. End-to-end verified with `scripts/test_chat_ws.py`. Next: `tools/tokens.py`, then daily maintenance job, then tool nodes. |
+| 2026-04-13 | `tools/tokens.py` written — character-based heuristic, wired into `db/history/sqlite.py` load(). `maintenance/cleanup.py` written and verified. `tools/llm.py` written — `ChatOllama` streaming wrapper, fallback model support, `StreamResult` dataclass. Spec updated to rev 25 — DAG orchestration architecture: PLANNER node (REASONING_MODEL, produces StepPlan), ORCHESTRATOR node (reactive execution, dependency-aware failure isolation), `step_plan` and `step_results` added to JarvisState. Next session: full spec audit of orchestration section, then TASKS node. |

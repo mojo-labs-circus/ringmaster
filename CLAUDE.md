@@ -22,11 +22,12 @@
 See `jarvis-dev-context.md` — session log and full phase checklist.
 
 ## Current Task
-FastAPI skeleton items remaining before tool nodes:
+FastAPI skeleton and tools complete. Spec updated to rev 25 — DAG orchestration architecture added (PLANNER + ORCHESTRATOR nodes). Next session starts with a full spec audit of the new orchestration section before any implementation.
 
-- `tools/tokens.py` — token counting so `history_repo.load()` can enforce `CONTEXT_WINDOW_BUDGET`
-- Daily maintenance job — `maintenance/cleanup.py`
-- Then tool nodes (see phase checklist in jarvis-dev-context.md)
+After audit, implementation order:
+- TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
+- Then remaining tool nodes (see phase checklist in jarvis-dev-context.md)
+- PLANNER and ORCHESTRATOR nodes come after individual agent nodes are working
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the phase checklist.

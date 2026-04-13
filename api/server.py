@@ -6,7 +6,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from api.auth import router as auth_router
+from api.routes.auth import router as auth_router
 from api.routes.chat import router as chat_router
 from api.routes.profile import router as profile_router
 from notifications.notify import notify_admin

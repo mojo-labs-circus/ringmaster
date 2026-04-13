@@ -72,7 +72,7 @@ Every client — TUI, web dashboard, mobile PWA — talks to the same backend ov
 - **All secrets via environment variables.** Nothing sensitive ever touches `config.yaml` or git. See Secrets section.
 - **Errors are handled at the node level.** Nodes catch expected failures and write to `JarvisState.error` — RESPONDER formats clean messages for the client. Unexpected exceptions bubble to FastAPI's global handler.
 - **Any node setting `error` routes immediately to RESPONDER.** All downstream nodes are skipped. This is a universal graph rule — no node after a failing node ever runs. RESPONDER formats the error with tier-appropriate detail: Admin gets full technical detail (component, error class, what failed and where), Power gets operational detail (what couldn't be completed, plain reason), Standard gets plain English specific to what the user asked for (no technical terms, but not vague — e.g. "I couldn't retrieve your memories for this request" not "something went wrong"). Regardless of tier, the error is always logged at `ERROR` level so full detail is available on the server.
-- **One message at a time per connection.** FastAPI processes one invocation per user at a time. Incoming messages received during an active invocation are queued and processed only after the `done` frame has been sent.
+- **One message at a time per connection.** FastAPI processes one invocation per user at a time. Messages received during an active invocation are dropped — the server sends a `status` frame and the client should indicate the busy state visually. No queuing.
 - **Abstract repository methods use `...` as the body, not `pass`.** `...` (Ellipsis) signals "intentionally unimplemented — implementation lives elsewhere." `pass` means "do nothing," which is misleading for an interface method. This applies to all `repository.py` files across `db/auth/`, `db/tasks/`, and `db/history/`.
 - **Never call `get_auth_repository()`, `get_task_repository()`, or `get_history_repository()` inside a function body.** Repository instantiation always happens at module level or via FastAPI's `Depends()` injection. Constructing a repository inside a function body bypasses dependency injection and makes the code untestable.
 - **Prefer dependency injection over manual checks.** Any check performed on more than one endpoint — authentication, tier gating, repository access — must be implemented as a FastAPI dependency in `dependencies.py` and applied via `Depends()`. Never duplicate the same check logic inside multiple function bodies.
@@ -410,7 +410,9 @@ All real-time communication between FastAPI and clients uses a persistent WebSoc
 
 One WebSocket connection per authenticated session. The client opens it on login and keeps it alive for the duration of the session. Starlette's native ping/pong heartbeat detects silent disconnects automatically — no manual heartbeat implementation required. If the connection drops, clients reconnect automatically.
 
-**One message at a time:** FastAPI processes one invocation per user at a time. Incoming messages received during an active invocation are queued and processed only after the `done` frame has been sent. When a message is queued, FastAPI immediately sends a `status` frame with `"One moment..."` so the user knows the message was received. This serialises naturally — LangGraph runs one graph instance per user at a time and the WebSocket is a single persistent connection.
+**One message at a time:** FastAPI processes one invocation per user at a time. If a message arrives during an active invocation, the server sends a `status` frame — `"I'm still working on your last message."` — and drops it. No queuing. The client should visually indicate the busy state so the user knows not to send. This keeps the server simple and the interaction model unambiguous for all clients.
+
+**Future work — TUI interrupt channel:** A `/btw` style mechanism for power TUI users may be added in a later phase, allowing a secondary message to be injected mid-invocation. This is opt-in, TUI-only, and not part of the core contract. All other clients remain strictly one-message-at-a-time with no queuing.
 
 **During interrupt/confirm:** When a `confirm_request` frame is sent, the client must disable the message input field until the confirmation is resolved. The server rejects any non-`confirm`/`cancel` message received while an interrupt is active, responding with a `status` frame: `"Please confirm or cancel the pending action first."` This is enforced at both layers — client disables input as the primary UX, server rejects as a safety net. The confirmation gate is a modal moment by design: consequential actions require explicit user intent before proceeding.
 
@@ -472,7 +474,7 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 | `token` | server → client | Single streaming token — client appends to display. Produces the typewriter effect. |
 | `done` | server → client | Stream complete — carries `refresh` array |
 | `error` | server → client | Something went wrong — display message to user |
-| `status` | server → client | In-progress indicator — node-entry, mid-node update, queued message acknowledgement, or interrupt rejection |
+| `status` | server → client | In-progress indicator — node-entry, mid-node update, busy rejection, or interrupt rejection |
 | `confirm_request` | server → client | Node is paused awaiting confirmation — carries `payload` describing what requires approval. Client must disable input on receipt. |
 | `confirm` | client → server | User approved the pending action — graph resumes. `message_id` correlates to the `confirm_request` that triggered it. |
 | `cancel` | client → server | User cancelled the pending action — graph aborts the command cleanly. `message_id` correlates to the `confirm_request` that triggered it. On cancel, control returns to the user — if they want to redirect or explain, their next message handles it naturally. |
@@ -1104,7 +1106,7 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
   - [ ] `db/auth/sqlite.py` — SQLiteAuthRepository
   - [ ] `db/auth/postgres.py` — PostgresAuthRepository (stub)
   - [ ] `db/auth/factory.py` — reads `JARVIS_DB_BACKEND` env var, defaults to `sqlite`
-  - [ ] `api/auth.py` gets its repository via the factory — never accesses storage directly
+  - [ ] `api/routes/auth.py` gets its repository via the factory — never accesses storage directly
 - [ ] JWT auth — `POST /auth/login` endpoint. Request: `{"username": "...", "password": "..."}`. Response: `{"access_token": "...", "refresh_token": "...", "access_expires_at": "..."}`. Inserts row into `refresh_tokens` on success. Returns 401 on failure. Tracks failed attempts per IP — 5 failures in 10 minutes triggers `notify_admin`.
 - [ ] `/auth/refresh` endpoint — silent token renewal, called by `tui/auth.py`. Validates token hash against `refresh_tokens` table — rejects if revoked or expired.
 - [ ] `/auth/logout` endpoint — marks current device's refresh token row `revoked = true`. Does not increment `token_version` — other devices stay active.
@@ -1288,13 +1290,15 @@ Voice is an add-on — the rest of the platform is fully functional without it. 
 │   └── styles/
 ├── api/                     # FastAPI server
 │   ├── server.py
-│   ├── auth.py              # JWT auth — access + refresh tokens, token_version validation, invite + register flow. Gets auth repository via db/auth/factory.py.
 │   ├── schemas.py           # Pydantic models for API request/response shapes
-│   ├── routes/
-│   │   ├── chat.py          # WebSocket streaming endpoint — owns all frame sending, uses astream_events, queues messages during active invocation, clears queue and sends error frame on token_version mismatch, fires memory/persist.py as background task unconditionally after every exchange
-│   │   ├── tasks.py         # GET /tasks, DELETE /tasks/{id}
-│   │   └── memory.py        # GET /memory (stub in Phase 3)
-│   └── dependencies.py      # get_current_user, tier checks, token_version check, etc.
+│   ├── dependencies.py      # get_current_user, get_connected_client_ws, ConnectedClient, tier checks
+│   ├── connections.py       # Connection registry — maps user_id to active WebSockets, profile push
+│   └── routes/
+│       ├── auth.py          # JWT auth — access + refresh tokens, token_version validation, invite + register flow. Gets auth repository via db/auth/factory.py.
+│       ├── chat.py          # WebSocket streaming endpoint — owns all frame sending, uses astream_events, drops messages during active invocation, fires memory/persist.py as background task after every exchange
+│       ├── profile.py       # GET /profile, PATCH /profile
+│       ├── tasks.py         # GET /tasks, DELETE /tasks/{id}
+│       └── memory.py        # GET /memory (stub in Phase 3)
 ├── graph/                   # LangGraph — graph ends at RESPONDER
 │   ├── graph.py
 │   ├── state.py             # JarvisState — all fields required, node-populated fields zero-initialised by FastAPI

@@ -12,7 +12,7 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import jwt
 
-from api.dependencies import require_admin
+from api.dependencies import get_current_user, require_admin
 from api.schemas import (
     InviteRequest,
     InviteResponse,
@@ -55,7 +55,6 @@ def _build_access_token(user: User, client_type: str) -> tuple[str, str]:
         "user_id": user.username,
         "tier": user.tier,
         "client_type": client_type,
-        "assistant_name": user.assistant_name,
         "token_version": user.token_version,
         "exp": expires_at,
     }

@@ -11,7 +11,7 @@ A fully local, privacy-first AI assistant platform running on a dedicated home s
 
 Every client — TUI, web dashboard, mobile PWA — talks to the same backend over Tailscale. The server is the product. The clients are just windows into it.
 
-**JARVIS is the platform name.** The codebase, Docker stack, repo, config keys, and internal service names are all JARVIS. Each user's assistant name (JARVIS, FRIDAY, ARIA, etc.) is a per-user setting stored in Postgres and included in the JWT — family members never see the platform name unless they want to.
+**JARVIS is the platform name.** The codebase, Docker stack, repo, config keys, and internal service names are all JARVIS. Each user's assistant name (JARVIS, FRIDAY, ARIA, etc.) is a per-user setting stored in Postgres and served via `GET /profile` — family members never see the platform name unless they want to.
 
 **Core principle: Our AI. Our data. Our server.**
 
@@ -97,11 +97,11 @@ Tier is stored in the user's Postgres profile and checked by FastAPI on every re
 
 ### Assistant Names
 
-Each user configures their own assistant name. Stored per-user in Postgres and included in the JWT payload — the client holds the name from the moment of login and uses it throughout the UI without any per-response injection.
+Each user configures their own assistant name. Stored per-user in Postgres and served via `GET /profile`. The client fetches it on login and caches it locally.
 
-Name changes take effect immediately: updating `assistant_name` in Postgres also increments the user's `token_version`, which invalidates their current token. The client's silent refresh flow picks this up on the next request and issues a new token with the updated name. From the user's perspective the name changes instantly.
+Name changes go through `PATCH /profile` — no token invalidation, no forced re-login. The server pushes a `profile` WebSocket frame to all of that user's active connections; each client re-fetches `GET /profile` and triggers a silent refresh to get an up-to-date JWT.
 
-Tier changes take effect immediately via the same mechanism — `tier` and `token_version` are updated atomically, the user's current token is invalidated, and the new tier is reflected in the next issued token.
+Tier changes are admin-only and go through a Phase 4 admin endpoint (`PATCH /admin/users/{username}`). The server pushes the same `profile` WebSocket frame to the affected user's active connections — the client responds identically: `GET /profile` + silent refresh. The new tier is live within seconds on all active clients. No `token_version` increment required.
 
 ```yaml
 # Example assistant names — stored in Postgres, not config.yaml
@@ -131,9 +131,9 @@ The server's responsibility on logout is to mark the refresh token `revoked = tr
 
 ### WebSocket and Token Invalidation
 
-WebSocket connections are validated at connection time. `token_version` is checked on every new message received over the connection — if the stored version has been incremented since the connection was opened (e.g. an admin forced deauth or changed the user's tier), the connection is closed with a clean `error` frame on the next message. The queue is cleared on mismatch — any pending messages are dropped and not processed. The `error` frame indicates that re-authentication was required; the user re-authenticates via the normal silent refresh flow and re-sends manually. In practice this scenario is rare since the client disables input during active invocations, meaning the queue will typically have at most one message in it.
+WebSocket connections are validated at connection time. `token_version` is checked on every new message received over the connection — if the stored version has been incremented since the connection was opened (e.g. an admin forced a full deauth), the connection is closed with a clean `error` frame on the next message. The queue is cleared on mismatch — any pending messages are dropped and not processed. The `error` frame indicates that re-authentication was required; the user re-authenticates via the normal silent refresh flow and re-sends manually. In practice this scenario is rare since the client disables input during active invocations, meaning the queue will typically have at most one message in it.
 
-The client then re-authenticates via the normal silent refresh flow. No server-side connection registry is required.
+The server maintains a connection registry — a dict mapping `user_id` to all currently open WebSocket connections for that user. This is used to push `profile` frames on assistant name or tier changes, and will be used by the admin dashboard to show active sessions.
 
 ### Token Contents (JWT payload)
 ```json
@@ -185,7 +185,7 @@ Everything else propagates seamlessly with no re-login:
 | `username` | string | Primary key — used as `user_id` throughout the system |
 | `password_hash` | string | bcrypt hash — never store the raw password |
 | `tier` | string | `admin` \| `power` \| `standard` |
-| `assistant_name` | string | Per-user, included in JWT |
+| `assistant_name` | string | Per-user display name — served via `GET /profile` |
 | `token_version` | integer | Starts at 0, increment to invalidate all active tokens |
 
 ### `refresh_tokens` Table
@@ -227,7 +227,8 @@ New users are added via an invite flow — the Admin generates a one-time invite
 - `POST /auth/logout` — Authenticated. Marks the current device's refresh token row `revoked = true`. Does not increment `token_version` — other devices stay active.
 - `POST /auth/invite` — Admin only. Returns a one-time invite token valid for 48 hours.
 - `POST /auth/register` — Open (invite token required). Consumes the invite, creates the user. Notifies admin via ntfy on success — admin should know when a new user joins the system.
-- `GET /profile` — Authenticated. Returns `username`, `tier`, `assistant_name`. Called by client on login and after receiving an assistant name change push over WebSocket.
+- `GET /profile` — Authenticated. Returns `username`, `tier`, `assistant_name`. Called by client on login and on receipt of a `profile` WebSocket push.
+- `PATCH /profile` — Authenticated. Updates `assistant_name`. Returns updated `ProfileResponse`. Server pushes a `profile` frame to all of the user's active connections after the update.
 
 ### Daily Maintenance Job (ofelia)
 
@@ -271,7 +272,7 @@ The TUI is a long-lived terminal process — the access token can expire mid-ses
 {"refresh_token": "eyJ...", "client_type": "tui"}
 ```
 `client_type` is sent by the client rather than stored in `refresh_tokens` — the client always knows its own type and this keeps the table simple.
-The server validates it (exists, not revoked, not expired), reads the current `token_version`, `tier`, and `assistant_name` from the `users` table, and issues a new access token embedding those current values. This means a silent refresh automatically picks up any pending name or tier changes — the new token reflects the live user record at the moment of issuance.
+The server validates it (exists, not revoked, not expired), reads the current `token_version` and `tier` from the `users` table, and issues a new access token embedding those current values. This means a silent refresh automatically picks up any pending tier changes — the new token reflects the live user record at the moment of issuance.
 ```json
 {
   "access_token": "eyJ...",
@@ -610,6 +611,7 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 {"type": "confirm_request", "message_id": "abc123", "payload": {"type": "command", "value": "rm -rf /tmp/jarvis-scratch"}}
 {"type": "confirm",         "message_id": "abc123"}
 {"type": "cancel",          "message_id": "abc123"}
+{"type": "profile",         "message_id": "abc123"}
 ```
 
 **Frame types:**
@@ -623,6 +625,7 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 | `confirm_request` | server → client | Node is paused awaiting confirmation — carries `payload` describing what requires approval. Client must disable input on receipt. |
 | `confirm` | client → server | User approved the pending action — graph resumes. `message_id` correlates to the `confirm_request` that triggered it. |
 | `cancel` | client → server | User cancelled the pending action — graph aborts the command cleanly. `message_id` correlates to the `confirm_request` that triggered it. On cancel, control returns to the user — if they want to redirect or explain, their next message handles it naturally. |
+| `profile` | server → client | Profile data has changed — client should call `GET /profile` and trigger a silent refresh immediately. Sent to all active connections for the user on any `assistant_name` or `tier` change. |
 
 ### message_id
 
@@ -753,7 +756,7 @@ class JarvisState(TypedDict):
     user_id: str                    # always present, never None — hardcoded to "clarkehines" in dev
     tier: str                       # "admin" | "power" | "standard"
     client_type: str                # "tui" | "web" | "mobile"
-    assistant_name: str             # per-user, read from JWT
+    assistant_name: str             # per-user, fetched from GET /profile and cached by client
 
     # Conversation
     messages: list[dict]            # history loaded from repository + current_input appended by FastAPI.

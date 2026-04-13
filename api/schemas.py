@@ -50,3 +50,15 @@ class InviteResponse(BaseModel):
 class RegisterRequest(BaseModel):
     token: str      # raw invite token
     password: str
+
+
+# --- Profile ---
+
+class ProfileResponse(BaseModel):
+    username: str
+    tier: str
+    assistant_name: str
+
+
+class ProfileUpdateRequest(BaseModel):
+    assistant_name: str

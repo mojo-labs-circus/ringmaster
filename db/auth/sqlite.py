@@ -55,6 +55,16 @@ class SQLiteAuthRepository(AuthRepository):
         connection.commit()
         connection.close()
 
+    def update_assistant_name(self, username: str, assistant_name: str) -> None:
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        cursor.execute(
+            "UPDATE users SET assistant_name = ? WHERE username = ?",
+            (assistant_name, username),
+        )
+        connection.commit()
+        connection.close()
+
     # --- Refresh Tokens ---
 
     def create_refresh_token(self, token: RefreshToken) -> RefreshToken:

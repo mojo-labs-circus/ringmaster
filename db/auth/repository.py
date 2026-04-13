@@ -22,6 +22,11 @@ class AuthRepository(ABC):
         # Called on logout and forced deauth — immediately invalidates all active tokens
         ...
 
+    @abstractmethod
+    def update_assistant_name(self, username: str, assistant_name: str) -> None:
+        # Called on PATCH /profile — updates the display name without touching token_version
+        ...
+
     # --- Refresh Tokens ---
 
     @abstractmethod

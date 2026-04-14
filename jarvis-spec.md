@@ -127,7 +127,7 @@ When the access token expires, the client uses the refresh token to get a new on
 
 Refresh tokens are stored server-side in a `refresh_tokens` table. The server stores a hash of the token, not the raw value. On logout or forced deauth, the row is marked `revoked = true` — making silent refresh impossible and requiring full re-authentication. This means forced logout actually means forced logout, with no window where a revoked user can keep refreshing.
 
-The server's responsibility on logout is to mark the refresh token `revoked = true`. Client-side credential cleanup is each client's own responsibility — see the TUI Token Management section for TUI-specific behaviour. Web and mobile token storage strategy is deferred to Phase 7 planning, with httpOnly cookies for the refresh token and memory-only for the access token as the likely direction.
+The server's responsibility on logout is to mark the refresh token `revoked = true`. Client-side credential cleanup is each client's own responsibility — see the TUI Token Management section for TUI-specific behaviour. Web and mobile token storage strategy is deferred to Phase 5 planning, with httpOnly cookies for the refresh token and memory-only for the access token as the likely direction.
 
 ### WebSocket and Token Invalidation
 
@@ -791,7 +791,7 @@ ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORC
 - `GET /tasks` — returns all tasks for the authenticated user as a JSON array, both open and closed. Accepts optional query parameters `sort_by` and `order` to control server-side sort before returning. Sortable fields: `created_at`, `priority`, `due_date`, `status`. Valid `order` values: `asc | desc`. Default sort: `created_at DESC`. Filtering is the client's responsibility. Note: `priority` is stored as a string enum (`low | medium | high`) — the server must sort it by semantic rank, not alphabetically (i.e. `high > medium > low`), using a `CASE` expression or equivalent. Note: when sorting by `due_date`, tasks with no due date (`null`) sort last regardless of `order` direction — undated tasks are less time-sensitive than dated ones and should never float above them. Note: `created_by` will become a sortable field when shared tasks are introduced in Phase 8.
 - `DELETE /tasks/{id}` — permanently deletes a task. Returns `204 No Content` on success. Returns 404 with a clean message body if the task does not exist or does not belong to the requesting user — the 404-for-wrong-user is intentional by design: the server does not confirm whether a given task ID exists for another user (a 403 would reveal that). Built alongside the TASKS node — endpoint and feature ship together. This is a direct HTTP call with no LangGraph in the loop — the server executes immediately on receipt with no server-side confirmation gate. The client owns the confirmation UX entirely (e.g. a simple "are you sure?" dialog before firing the request) and is responsible for surfacing a 404 response visibly to the user in the appropriate UI channel — a toast notification or inline error on the task item, not a silent failure. No AI involvement — this is a direct UI action, not a chat interaction.
 
-All task mutations other than deletion go through the WebSocket chat interface. There is no `PATCH` endpoint in Phase 3 — this is intentional. All mutations have a natural language equivalent, and a direct edit API is not needed until the web dashboard (Phase 7) makes it obvious. If a `PATCH` endpoint is warranted at that point, it is a trivial addition.
+All task mutations other than deletion go through the WebSocket chat interface. There is no `PATCH` endpoint in Phase 3 — this is intentional. All mutations have a natural language equivalent, and a direct edit API is not needed until the web dashboard (Phase 5) makes it obvious. If a `PATCH` endpoint is warranted at that point, it is a trivial addition.
 
 ### CODE
 - Admin and Power tier only
@@ -966,7 +966,7 @@ The user can always override explicitly: "add this to the family brain" or "keep
 - `tasks.db` — `tasks`
 - `history.db` — `history`
 
-`create_tables()` is called from FastAPI's lifespan context manager on startup, conditional on `DB_BACKEND == "sqlite"`. It is never called at module import time. Using `CREATE TABLE IF NOT EXISTS` means it is safe to call on every startup — it will not alter or overwrite existing tables. When the schema changes during development, delete the relevant `.db` file and let startup recreate it: delete `~/.jarvis/auth.db` for auth tables, `~/.jarvis/tasks.db` for tasks, `~/.jarvis/history.db` for history. Startup will recreate the file and all tables in it. Proper migrations (Alembic) are introduced in Phase 5.
+`create_tables()` is called from FastAPI's lifespan context manager on startup, conditional on `DB_BACKEND == "sqlite"`. It is never called at module import time. Using `CREATE TABLE IF NOT EXISTS` means it is safe to call on every startup — it will not alter or overwrite existing tables. When the schema changes during development, delete the relevant `.db` file and let startup recreate it: delete `~/.jarvis/auth.db` for auth tables, `~/.jarvis/tasks.db` for tasks, `~/.jarvis/history.db` for history. Startup will recreate the file and all tables in it. Proper migrations (Alembic) are introduced in Phase 6.
 
 ### Vault Structure
 
@@ -1069,7 +1069,7 @@ The TUI opens the WebSocket connection immediately on startup and reconnects aut
 ### Web Dashboard — `jarvis.home`
 Full management interface served at `jarvis.home`, proxied by Caddy, accessible over Tailscale. Covers all tiers. Includes chat, task management, memory browsing, skill approval queue, and Admin panel. `client_type: web` passed at login and baked into JWT. Opens WebSocket immediately on login and reconnects automatically on drop.
 
-Token storage strategy for web and mobile is deferred to Phase 7 planning. The likely direction is httpOnly cookies for the refresh token (cannot be read by JavaScript, immune to XSS) and memory-only for the access token (cleared on page close, never touches disk).
+Token storage strategy for web and mobile is deferred to Phase 5 planning. The likely direction is httpOnly cookies for the refresh token (cannot be read by JavaScript, immune to XSS) and memory-only for the access token (cleared on page close, never touches disk).
 
 ### Mobile PWA
 The web dashboard is built mobile-first and installable as a PWA from any browser. No app store required. Works over Tailscale from anywhere. `client_type: mobile` passed at login and baked into JWT.
@@ -1098,8 +1098,8 @@ The web dashboard is built mobile-first and installable as a PWA from any browse
 | Remote access | Tailscale | All clients connect via Tailscale |
 | ZFS storage | `/tank/docker/jarvis/` | Postgres + ChromaDB + vaults on server |
 | Task scheduler | ofelia | Daily maintenance job — purge expired tokens, invites, old history |
-| Voice STT | Whisper / TBD at Phase 9 | Phase 9 — separate container, FastAPI proxy |
-| Voice TTS | Piper / TBD at Phase 9 | Phase 9 — separate container, FastAPI proxy |
+| Voice STT | Whisper / TBD at Phase 8 | Phase 8 — separate container, FastAPI proxy |
+| Voice TTS | Piper / TBD at Phase 8 | Phase 8 — separate container, FastAPI proxy |
 | Language | Python 3.11+ | |
 | Dev GPU | NVIDIA RTX 3080 (pearlybaker) | CUDA 12.1 |
 | Server GPU | NVIDIA RTX 4070 Ti Super | 16 GB VRAM, CUDA |
@@ -1182,7 +1182,7 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
 - [ ] `users` table — fields: `username` (PK), `password_hash`, `tier`, `assistant_name`, `token_version`
 - [ ] `refresh_tokens` table — fields: `id`, `user_id`, `token_hash`, `expires_at`, `revoked`
 - [ ] `invites` table — fields: `id`, `token_hash`, `username`, `tier`, `assistant_name`, `expires_at`, `used`
-- [ ] `db/schema.py` — exposes `create_tables()` function. Opens connections to `auth.db` (users, refresh_tokens, invites), `tasks.db` (tasks), and `history.db` (history) and runs `CREATE TABLE IF NOT EXISTS` for each. Called from FastAPI's lifespan context manager on startup, conditional on `DB_BACKEND == "sqlite"` — never at module import time. When the schema changes during development, delete the relevant `.db` file and let startup recreate it: `~/.jarvis/auth.db` for auth tables, `~/.jarvis/tasks.db` for tasks, `~/.jarvis/history.db` for history. Proper migrations (Alembic) are introduced in Phase 5.
+- [ ] `db/schema.py` — exposes `create_tables()` function. Opens connections to `auth.db` (users, refresh_tokens, invites), `tasks.db` (tasks), and `history.db` (history) and runs `CREATE TABLE IF NOT EXISTS` for each. Called from FastAPI's lifespan context manager on startup, conditional on `DB_BACKEND == "sqlite"` — never at module import time. When the schema changes during development, delete the relevant `.db` file and let startup recreate it: `~/.jarvis/auth.db` for auth tables, `~/.jarvis/tasks.db` for tasks, `~/.jarvis/history.db` for history. Proper migrations (Alembic) are introduced in Phase 6.
 - [ ] `scripts/seed_db.py` — calls `create_tables()` first, then creates initial `clarkehines` admin record. Idempotent, interactive password prompt, prints confirmation. All other users added via invite flow.
 - [ ] `JarvisState` updated — all fields present, node-populated fields zero-initialised by FastAPI at invocation (including `interrupt_payload: None`)
 - [ ] FastAPI validates `token_version` against database on every request and on every WebSocket message received
@@ -1265,35 +1265,11 @@ FastAPI skeleton exists from Phase 3. This phase completes the multi-user platfo
 
 **Exit criteria:** Three test users exist — one of each tier (admin, power, standard) — all created via invite flow except the admin. All three can chat simultaneously with fully isolated data. Tier gating verified (standard user cannot access code or system nodes). Assistant names and tiers are hotswappable — changes propagate to all active connections via `profile` WebSocket push within seconds, no re-login required.
 
-### Phase 5 — Postgres Migration
-- [ ] `PostgresTaskRepository` full implementation
-- [ ] `PostgresHistoryRepository` full implementation
-- [ ] User and session tables complete in Postgres
-- [ ] `JARVIS_DB_BACKEND=postgres` env var switches all repository backends
-- [ ] Alembic introduced — migration tooling for all future schema changes. Replaces drop-and-recreate dev convention. All schema changes from this point forward go through Alembic migrations.
-- [ ] Migration script: SQLite → Postgres
-
-**Exit criteria:** Full stack running against Postgres. SQLite retained for dev only. All schema changes go through Alembic.
-
-### Phase 6 — Server Deployment *(summer 2026)*
-- [ ] Docker Compose for full JARVIS stack
-- [ ] All services containerised — Postgres, ChromaDB, Ollama, FastAPI
-- [ ] Data on `/tank/docker/jarvis/` (ZFS, auto-snapshotted)
-- [ ] Caddy entry — `jarvis.home`
-- [ ] Tailscale access from all devices
-- [ ] ofelia for scheduled tasks including daily maintenance job
-- [ ] Pearlybaker and nomadbaker TUIs connect to server
-- [ ] Voice container placeholders in Docker Compose (STT + TTS service definitions, no implementation yet)
-
-**Exit criteria:** JARVIS running on server. TUI on pearlybaker connects remotely. All data on ZFS.
-
-**Note:** Post-deployment, all development runs against the live server stack over Tailscale. The SQLite dev backends (`auth.db`, `tasks.db`, `history.db`), local vault paths, and `[pearlybaker only]` annotations become redundant at this point and may be retired.
-
-**Post-Phase-6 cleanup task:** Once the server is running and all clients are connecting to it, do a full cleanup pass: remove all `[pearlybaker only]` annotations and conditional code paths, retire nomadbaker stand-in model config, consolidate all vault and data paths to `/tank/docker/jarvis/`, and remove the SQLite dev scaffolding from the spec, codebase, and databases.
-
-### Phase 7 — Clients
+### Phase 5 — Clients *(developed against local dev setup)*
 
 Six clients, each in its own repo, all connecting to FastAPI over Tailscale. No client has a privileged path to the backend — the API contract is the same for all. Nothing is accessible over the open internet.
+
+Clients are built and tested against the local SQLite dev setup before the server exists. Once Phase 6 brings the server online, all clients point there instead — no client code changes required, just a config update.
 
 #### Client summary
 
@@ -1317,7 +1293,7 @@ Six clients, each in its own repo, all connecting to FastAPI over Tailscale. No 
 - [ ] Login screen — prompts for credentials, stores tokens on success
 - [ ] Chat panel — full WebSocket flow, streaming token display
 - [ ] Tasks panel — reads `GET /tasks`, updates automatically on `done` frame `refresh` array
-- [ ] Memory panel — reads `GET /memory` (stub until Phase 8)
+- [ ] Memory panel — reads `GET /memory` (stub until Phase 7)
 - [ ] Skill approval queue — Admin/Power only, shown based on JWT tier claim
 - [ ] User settings — assistant name, preferences
 - [ ] Silent token refresh — handled transparently, user never sees it
@@ -1355,7 +1331,35 @@ Auto-update for desktop apps is a future addition — see Future Work.
 
 **Exit criteria:** All six clients in separate repos with install/setup scripts. Full family accessible via their preferred client over Tailscale. Admin can generate an invite token, change a user's tier, and force-deauth a user from the Linux desktop, TUI, or iOS app. macOS and iOS share `jarvis-swift-core`.
 
-### Phase 8 — Multi-User Onboarding
+### Phase 6 — Server Deployment + Postgres Migration *(summer 2026)*
+
+Postgres lives on the server — there is no reason to run it locally in dev. SQLite handles development; Postgres is introduced here alongside the server stack.
+
+**Postgres migration:**
+- [ ] `PostgresAuthRepository` full implementation
+- [ ] `PostgresTaskRepository` full implementation
+- [ ] `PostgresHistoryRepository` full implementation
+- [ ] `JARVIS_DB_BACKEND=postgres` env var switches all repository backends
+- [ ] Alembic introduced — migration tooling for all future schema changes. Replaces drop-and-recreate dev convention. All schema changes from this point forward go through Alembic migrations.
+- [ ] Migration script: SQLite → Postgres
+
+**Server deployment:**
+- [ ] Docker Compose for full JARVIS stack
+- [ ] All services containerised — Postgres, ChromaDB, Ollama, FastAPI, web client
+- [ ] Data on `/tank/docker/jarvis/` (ZFS, auto-snapshotted)
+- [ ] Caddy entry — `jarvis.home`
+- [ ] Tailscale access from all devices
+- [ ] ofelia for scheduled tasks including daily maintenance job
+- [ ] All clients pointed at server — config update only, no code changes
+- [ ] Voice container placeholders in Docker Compose (STT + TTS service definitions, no implementation yet)
+
+**Exit criteria:** JARVIS running on server against Postgres. All clients connect over Tailscale. All data on ZFS. All schema changes go through Alembic.
+
+**Note:** Post-deployment, all development runs against the live server stack over Tailscale. The SQLite dev backends (`auth.db`, `tasks.db`, `history.db`), local vault paths, and `[pearlybaker only]` annotations become redundant at this point and may be retired.
+
+**Post-Phase-6 cleanup task:** Once the server is running and all clients are connecting to it, do a full cleanup pass: remove all `[pearlybaker only]` annotations and conditional code paths, retire nomadbaker stand-in model config, consolidate all vault and data paths to `/tank/docker/jarvis/`, and remove the SQLite dev scaffolding from the spec, codebase, and databases.
+
+### Phase 7 — Multi-User Onboarding
 - [ ] Family member accounts created via invite flow
 - [ ] Per-user vaults initialised
 - [ ] Shared family vault populated with household knowledge
@@ -1367,21 +1371,21 @@ Auto-update for desktop apps is a future addition — see Future Work.
 
 **Exit criteria:** All family members using JARVIS daily. Shared and personal memory working correctly. ROUTER successfully retrieves from both personal and shared skills collections.
 
-### Phase 9 — Voice
+### Phase 8 — Voice
 
-Voice is an add-on — the rest of the platform is fully functional without it. The specific STT/TTS software may change before this phase is reached given the pace of progress in the voice AI space; the architecture below is the current best guess but should be revisited at Phase 9 planning time.
+Voice is an add-on — the rest of the platform is fully functional without it. The specific STT/TTS software may change before this phase is reached given the pace of progress in the voice AI space; the architecture below is the current best guess but should be revisited at Phase 8 planning time.
 
 **Planned architecture:**
 - STT and TTS each run as separate Docker containers with internal API endpoints
 - FastAPI proxies STT/TTS requests to these containers — clients never call them directly
-- Phase 6's Docker Compose will include placeholder service definitions for both containers so the internal network topology is correct from the start, even before Phase 9 implements them properly
+- Phase 6's Docker Compose will include placeholder service definitions for both containers so the internal network topology is correct from the start, even before Phase 8 implements them properly
 
 **Checklist:**
 - [ ] STT container — Whisper (or equivalent at time of implementation)
 - [ ] TTS container — Piper (or equivalent at time of implementation)
 - [ ] FastAPI STT/TTS proxy endpoints
 - [ ] Wake word detection (optional)
-- [ ] Voice mode in TUI and web dashboard
+- [ ] Voice mode in TUI and web client
 
 **Exit criteria:** Hands-free JARVIS interaction.
 
@@ -1449,19 +1453,19 @@ Voice is an add-on — the rest of the platform is fully functional without it. 
 │   │   ├── models.py        # User, RefreshToken, Invite dataclasses
 │   │   ├── repository.py    # Abstract base class
 │   │   ├── sqlite.py        # SQLiteAuthRepository
-│   │   ├── postgres.py      # PostgresAuthRepository (stub in Phase 3, full in Phase 5)
+│   │   ├── postgres.py      # PostgresAuthRepository (stub in Phase 3, full in Phase 6)
 │   │   └── factory.py       # Reads JARVIS_DB_BACKEND env var, defaults to sqlite
 │   ├── tasks/
 │   │   ├── models.py        # Task dataclass — id, user_id, title, status, priority, due_date, created_at
 │   │   ├── repository.py    # Abstract base class — all methods require user_id
 │   │   ├── sqlite.py        # SQLiteTaskRepository
-│   │   ├── postgres.py      # PostgresTaskRepository (stub in Phase 3, full in Phase 5)
+│   │   ├── postgres.py      # PostgresTaskRepository (stub in Phase 3, full in Phase 6)
 │   │   └── factory.py       # Reads JARVIS_DB_BACKEND env var, defaults to sqlite
 │   └── history/
 │       ├── models.py        # HistoryEntry dataclass — id, user_id, role, content, created_at
 │       ├── repository.py    # Abstract base class — load(user_id) -> list[dict], save(user_id, role, content)
 │       ├── sqlite.py        # SQLiteHistoryRepository
-│       ├── postgres.py      # PostgresHistoryRepository (stub in Phase 3, full in Phase 5)
+│       ├── postgres.py      # PostgresHistoryRepository (stub in Phase 3, full in Phase 6)
 │       └── factory.py       # Reads JARVIS_DB_BACKEND env var, defaults to sqlite
 ├── memory/                  # ChromaDB operations and long-term memory persistence
 │   ├── chroma.py            # ChromaDB client — collections named by convention
@@ -1498,7 +1502,7 @@ Desktop clients (Linux, Windows, macOS) have no auto-update mechanism — users 
 Per-client token storage (auth.json, Keychain, Credential Manager) works but means credentials are siloed per device. Future: clients authenticate against Vaultwarden on the server, so tokens are centralised and consistent across all devices. Requires Vaultwarden API integration in each client.
 
 ### Admin observability dashboard
-The Phase 7 admin panel is intentionally minimal (user management, system status). A full dashboard — usage metrics, per-user activity, model performance, memory growth over time — is a post-base-development addition once the platform has enough runtime data to make it useful.
+The Phase 5 admin panel is intentionally minimal (user management, system status). A full dashboard — usage metrics, per-user activity, model performance, memory growth over time — is a post-base-development addition once the platform has enough runtime data to make it useful.
 
 ### User notifications (`notify_user`)
 A `notify_user(user_id, message, type)` function for user-facing async notifications — background task completion, deadline reminders, etc. Delivery via WebSocket push to the active client, with ntfy as a fallback for offline delivery. Distinct from `notify_admin`.
@@ -1513,4 +1517,4 @@ A deeper memory consolidation pass that strengthens important memories, merges r
 A direct task edit REST endpoint. Not needed while all mutations go through the chat interface, but may become obvious once the web dashboard is built. Trivial to add at that point.
 
 ### Voice mode in all clients
-Phase 9 adds STT/TTS infrastructure and voice mode to the TUI. Extending voice input/output to the desktop and iOS clients is left for after Phase 9 proves the architecture.
+Phase 8 adds STT/TTS infrastructure and voice mode to the TUI. Extending voice input/output to the desktop and iOS clients is left for after Phase 8 proves the architecture.

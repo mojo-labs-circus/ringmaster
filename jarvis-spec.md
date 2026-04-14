@@ -1060,8 +1060,7 @@ ROUTER checks `skills_{user_id}` then `skills_shared` before every action. Perso
 | Voice TTS | Piper / TBD at Phase 8 | Phase 8 — separate container, FastAPI proxy |
 | Language | Python 3.11+ | |
 | Dev GPU | NVIDIA RTX 3080 (pearlybaker) | CUDA 12.1 |
-| Server GPU (primary) | NVIDIA RTX 4070 Ti Super | 16 GB VRAM, CUDA — reasoning and coding models |
-| Server GPU (secondary) | TBD — cheaper secondary card | Lightweight models — ROUTER, CONVERSATION, TASKS, MEMORY, WEB, SYSTEM |
+| Server GPUs | See `server-specs.md` | Dual-GPU inference split — primary for reasoning/coding, secondary for lightweight models |
 | Test runner | pytest | Unit + integration suites |
 
 ---

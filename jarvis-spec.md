@@ -882,6 +882,7 @@ loop (configurable max) or surface to user for a decision
 - At the end of every invocation, FastAPI writes the new exchange back to the repository
 - Each user's conversation history is fully isolated by `user_id`
 - Retention period configured per `RETENTION_DAYS` — enforced by the daily ofelia maintenance job
+- **Message editing** — to edit a past message, the client deletes all history entries at or after the selected message and resends the replacement through the normal WebSocket flow. Discarded history is not recoverable. The repository exposes a `delete_from(user_id, entry_id)` method for this purpose.
 
 ### History Repository Interface
 
@@ -893,6 +894,10 @@ def load(self, user_id: str) -> list[dict]:
 
 def save(self, entry: HistoryEntry) -> None:
     # Appends a single exchange turn to the history for this user
+
+def delete_from(self, user_id: str, entry_id: int) -> None:
+    # Deletes all entries for this user with id >= entry_id
+    # Used for message editing — truncates history at the edit point
 ```
 
 ### `HistoryEntry` Dataclass
@@ -1286,16 +1291,69 @@ FastAPI skeleton exists from Phase 3. This phase completes the multi-user platfo
 
 **Post-Phase-6 cleanup task:** Once the server is running and all clients are connecting to it, do a full cleanup pass: remove all `[pearlybaker only]` annotations and conditional code paths, retire nomadbaker stand-in model config, consolidate all vault and data paths to `/tank/docker/jarvis/`, and remove the SQLite dev scaffolding from the spec, codebase, and databases.
 
-### Phase 7 — Web Dashboard + PWA
-- [ ] Mobile-first web frontend at `jarvis.home`
-- [ ] Installable as PWA
-- [ ] Chat, tasks, memory read for all tiers
-- [ ] Skill approval queue for Admin/Power
-- [ ] User settings — assistant name, preferences
-- [ ] Admin panel — user management (invite generation, token invalidation, tier changes, system status). Intentionally minimal in this phase — a full observability and statistics dashboard is a post-base-development addition.
-- [ ] Token storage strategy — httpOnly cookies for refresh token, memory-only for access token
+### Phase 7 — Clients
 
-**Exit criteria:** Full family accessible via phone PWA. Admin can generate an invite token, change a user's tier, and force-deauth a user from the web UI.
+Six clients, each in its own repo, all connecting to FastAPI over Tailscale. No client has a privileged path to the backend — the API contract is the same for all. Nothing is accessible over the open internet.
+
+#### Client summary
+
+| Repo | Platform | Stack | Tier | Admin panel |
+|---|---|---|---|---|
+| `jarvis-tui` | Linux + Windows | Python/Textual | Admin/Power | Yes (tier-gated — shown for Admin) |
+| `jarvis-desktop-linux` | Linux | Python/GTK4 + libadwaita | All | Yes |
+| `jarvis-desktop-windows` | Windows | C#/WinUI 3 | All | No |
+| `jarvis-desktop-macos` | macOS | Swift/SwiftUI | All | No |
+| `jarvis-ios` | iOS | Swift/SwiftUI | All | Yes |
+| `jarvis-web` | Browser | React | All | No |
+
+`jarvis-swift-core` — separate repo, a shared Swift Package consumed by both `jarvis-desktop-macos` and `jarvis-ios`. Contains auth, token refresh, WebSocket client, and API models.
+
+#### Repo extraction (done first)
+- [ ] Extract TUI into `jarvis-tui` — own venv + requirements, no imports from backend repo
+- [ ] Create `jarvis-swift-core` — shared Swift Package for macOS and iOS
+- [ ] Create remaining client repos with basic project scaffolding
+
+#### Features — all clients
+- [ ] Login screen — prompts for credentials, stores tokens on success
+- [ ] Chat panel — full WebSocket flow, streaming token display
+- [ ] Tasks panel — reads `GET /tasks`, updates automatically on `done` frame `refresh` array
+- [ ] Memory panel — reads `GET /memory` (stub until Phase 8)
+- [ ] Skill approval queue — Admin/Power only, shown based on JWT tier claim
+- [ ] User settings — assistant name, preferences
+- [ ] Silent token refresh — handled transparently, user never sees it
+- [ ] Handles `profile` WebSocket frames — re-fetches `GET /profile` on receipt
+- [ ] Reconnects automatically on dropped WebSocket connection
+
+#### Admin panel — TUI, Linux desktop, iOS only
+- [ ] User management — invite generation, token invalidation, tier changes
+- [ ] System status — active connections, server health
+- Intentionally minimal — a full observability and statistics dashboard is a future addition
+
+#### Token storage
+Per-client storage is the current approach. Centralised storage via the server's Vaultwarden instance is a planned future upgrade — see Future Work.
+
+| Client | Storage |
+|---|---|
+| TUI | `~/.jarvis/auth.json` (Linux + Windows) |
+| Linux desktop | `~/.jarvis/auth.json` or libsecret keyring |
+| Windows desktop | Windows Credential Manager |
+| macOS desktop | Keychain |
+| iOS | Keychain |
+| Web | httpOnly cookie for refresh token, memory-only for access token |
+
+#### Distribution
+| Client | Method |
+|---|---|
+| TUI | Install script — Linux (bash) and Windows (PowerShell) |
+| Linux desktop | Install script (clone, venv, deps, optional `.desktop` file) |
+| Windows desktop | Installer package (WiX or similar) |
+| macOS desktop | `.app` bundle, direct download |
+| iOS | TestFlight |
+| Web | Deployed at `jarvis.home` via Docker Compose (service definition added in Phase 6) |
+
+Auto-update for desktop apps is a future addition — see Future Work.
+
+**Exit criteria:** All six clients in separate repos with install/setup scripts. Full family accessible via their preferred client over Tailscale. Admin can generate an invite token, change a user's tier, and force-deauth a user from the Linux desktop, TUI, or iOS app. macOS and iOS share `jarvis-swift-core`.
 
 ### Phase 8 — Multi-User Onboarding
 - [ ] Family member accounts created via invite flow
@@ -1426,3 +1484,33 @@ Voice is an add-on — the rest of the platform is fully functional without it. 
 │       ├── test_history_repository.py
 │       └── ...
 ```
+
+---
+
+## 🔮 Future Work
+
+Additions planned after all phases are complete. Not tied to any specific phase — these get tackled once the core platform is stable and the priority feels right.
+
+### Client auto-update
+Desktop clients (Linux, Windows, macOS) have no auto-update mechanism — users reinstall manually when a new version is available. A lightweight solution: the app pings a version endpoint on the server at startup, and prompts the user to re-download if behind. Applies to `jarvis-desktop-linux`, `jarvis-desktop-windows`, and `jarvis-desktop-macos`. iOS (TestFlight) and web handle updates automatically.
+
+### Centralised token storage via Vaultwarden
+Per-client token storage (auth.json, Keychain, Credential Manager) works but means credentials are siloed per device. Future: clients authenticate against Vaultwarden on the server, so tokens are centralised and consistent across all devices. Requires Vaultwarden API integration in each client.
+
+### Admin observability dashboard
+The Phase 7 admin panel is intentionally minimal (user management, system status). A full dashboard — usage metrics, per-user activity, model performance, memory growth over time — is a post-base-development addition once the platform has enough runtime data to make it useful.
+
+### User notifications (`notify_user`)
+A `notify_user(user_id, message, type)` function for user-facing async notifications — background task completion, deadline reminders, etc. Delivery via WebSocket push to the active client, with ntfy as a fallback for offline delivery. Distinct from `notify_admin`.
+
+### TUI interrupt channel (`/btw`)
+A secondary input channel for power TUI users — allows a message to be injected mid-invocation without cancelling the current one. Opt-in, TUI-only. All other clients remain strictly one-message-at-a-time.
+
+### Dream mode (memory)
+A deeper memory consolidation pass that strengthens important memories, merges redundant entries, and surfaces patterns across a user's history. Heavier than the daily pruning pass — intended to run less frequently (weekly or on demand). Architecture TBD at design time.
+
+### `PATCH /tasks/{id}`
+A direct task edit REST endpoint. Not needed while all mutations go through the chat interface, but may become obvious once the web dashboard is built. Trivial to add at that point.
+
+### Voice mode in all clients
+Phase 9 adds STT/TTS infrastructure and voice mode to the TUI. Extending voice input/output to the desktop and iOS clients is left for after Phase 9 proves the architecture.

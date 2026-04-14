@@ -9,7 +9,7 @@
 
 A fully local, privacy-first AI assistant platform running on a dedicated home server. No cloud, no external APIs, no data leaving the home network. JARVIS serves multiple family members simultaneously — each with their own persistent memory, personalised assistant name, and tailored capabilities — all built on shared infrastructure: one Ollama instance, one Postgres database, one ChromaDB cluster, one FastAPI backend.
 
-Every client — TUI, web dashboard, mobile PWA — talks to the same backend over Tailscale. The server is the product. The clients are just windows into it.
+Every client talks to the same backend over Tailscale. The server is the product. The clients are just windows into it.
 
 **JARVIS is the platform name.** The codebase, Docker stack, repo, config keys, and internal service names are all JARVIS. Each user's assistant name (JARVIS, FRIDAY, ARIA, etc.) is a per-user setting stored in Postgres and served via `GET /profile` — family members never see the platform name unless they want to.
 
@@ -20,30 +20,33 @@ Every client — TUI, web dashboard, mobile PWA — talks to the same backend ov
 ## 🏗️ Architecture Overview
 
 ```
-┌─────────────┐  ┌───────────────┐  ┌─────────────┐
-│  TUI        │  │ Web Dashboard │  │  Mobile PWA │
-│ (Textual)   │  │  (browser)    │  │  (browser)  │
-└──────┬──────┘  └──────┬────────┘  └──────┬──────┘
-       │                │                   │
-       └────────────────┼───────────────────┘
-                        │  HTTPS / WebSocket (Tailscale)
-               ┌────────▼──────────┐
-               │     FastAPI       │  ← unified interface for all clients
-               │   + JWT Auth      │
-               └────────┬──────────┘
-                        │
-          ┌─────────────┼──────────────┐
-          │             │              │
-   ┌──────▼──────┐  ┌───▼────┐  ┌─────▼─────┐
-   │  LangGraph  │  │Postgres│  │  ChromaDB  │
-   │ Orchestrator│  │(tasks, │  │ (per-user  │
-   │             │  │ users, │  │  memory)   │
-   │             │  │history)│  │           │
-   └──────┬──────┘  └────────┘  └───────────┘
-          │
-      ┌───▼───┐
-      │Ollama │  ← shared inference, queued per request
-      └───────┘
+          ┌──────────────────────────────┐
+          │   Clients (6 apps — Phase 5) │
+          │   all over Tailscale         │
+          └──────────────┬───────────────┘
+                         │  HTTPS / WebSocket (Tailscale)
+                ┌────────▼──────────┐
+                │     FastAPI       │  ← unified interface for all clients
+                │   + JWT Auth      │
+                └────────┬──────────┘
+                         │
+           ┌─────────────┼──────────────┐
+           │             │              │
+    ┌──────▼──────┐  ┌───▼────┐  ┌─────▼─────┐
+    │  LangGraph  │  │Database│  │  ChromaDB  │
+    │  (ROUTER →  │  │(tasks, │  │ (per-user  │
+    │  PLANNER →  │  │ users, │  │  memory)   │
+    │  ORCHESTR.) │  │history)│  │            │
+    └──────┬──────┘  └────────┘  └───────────┘
+           │
+     ┌─────┴──────────────────┐
+     │                        │
+ ┌───▼────────┐        ┌──────▼──────┐
+ │Ollama      │        │Ollama       │
+ │(primary)   │        │(secondary)  │
+ │reasoning + │        │lightweight  │
+ │coding      │        │models       │
+ └────────────┘        └─────────────┘
 ```
 
 ### Data Flow (per request)
@@ -51,16 +54,17 @@ Every client — TUI, web dashboard, mobile PWA — talks to the same backend ov
 2. FastAPI authenticates — validates token, checks `token_version` against database, identifies user, loads their profile and tier
 3. FastAPI loads user's recent conversation history from repository
 4. LangGraph invocation created — `JarvisState` populated with `user_id`, `tier`, `client_type`, `assistant_name`, `current_input`, and conversation history. FastAPI appends `current_input` as the final `{"role": "user", "content": current_input}` entry to `messages` so agent nodes always receive a complete, ready-to-use messages list. All node-populated fields are zero-initialised (`""`, `None`, `[]` as appropriate) — see JarvisState Fields.
-5. ROUTER classifies intent — decides whether MEMORY retrieval is needed for this intent
-6. `MEMORY_RETRIEVE` node runs if flagged by ROUTER — retrieves relevant context from ChromaDB
-7. Appropriate agent node executes — all data queries scoped to `user_id` via repository
-8. Ollama runs inference (shared, queued) — tokens streamed back as they are generated
-9. FastAPI forwards tokens to client as `token` frames as they arrive from Ollama
-10. RESPONDER formats final response into `formatted_response`, sets `refresh` on state
-11. Graph returns final state to FastAPI
-12. FastAPI sends `done` frame with `refresh` array from state
-13. FastAPI fires `memory/persist.py` as an asyncio background task after every exchange that completes with a `done` frame — not fired on `error` frame paths. Unconditional with respect to `needs_memory` (every successful exchange is evaluated), but never fired when the global exception handler handles the request instead of RESPONDER. Runs after `done` frame is sent, does not block the client.
-14. FastAPI writes new exchange to conversation history repository
+5. ROUTER classifies intent — writes `intent` and `needs_memory` to state
+6. PLANNER produces a `StepPlan` from `intent` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
+7. `MEMORY_RETRIEVE` runs if `needs_memory: true` — retrieves relevant context from ChromaDB, writes to `retrieved_context`
+8. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
+9. Agent node executes — calls Ollama; FastAPI forwards tokens to client as `token` frames as they arrive
+10. ORCHESTRATOR marks the step complete, clears `error` and `response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
+11. RESPONDER formats final response into `formatted_response`, sets `refresh` on state
+12. Graph returns final state to FastAPI
+13. FastAPI sends `done` frame with `refresh` array from state
+14. FastAPI fires `memory/persist.py` as an asyncio background task after every exchange that completes with a `done` frame — not fired on `error` frame paths. Unconditional with respect to `needs_memory` (every successful exchange is evaluated), but never fired when the global exception handler handles the request instead of RESPONDER. Runs after `done` frame is sent, does not block the client.
+15. FastAPI writes new exchange to conversation history repository
 
 ### Key Architecture Principles
 - **LangGraph is stateless between requests.** It receives all context it needs at invocation start and returns output. It does not own persistence.
@@ -68,7 +72,7 @@ Every client — TUI, web dashboard, mobile PWA — talks to the same backend ov
 - **FastAPI owns the WebSocket.** FastAPI sends all frames (`token`, `done`, `error`, `status`). LangGraph nodes never touch the WebSocket — they only transform state.
 - **FastAPI owns state initialisation.** FastAPI constructs the full `JarvisState` before every invocation, including appending `current_input` to `messages`. Nodes never manipulate the messages list directly.
 - **The graph ends at RESPONDER.** MEMORY_PERSIST is a FastAPI background task, not a graph node. The graph's job is done the moment RESPONDER writes `formatted_response` to state.
-- **All clients are equal.** TUI, web, and mobile all connect to FastAPI over Tailscale. No client has a privileged path to LangGraph.
+- **All clients are equal.** All clients connect to FastAPI over Tailscale. No client has a privileged path to LangGraph.
 - **All secrets via environment variables.** Nothing sensitive ever touches `config.yaml` or git. See Secrets section.
 - **Errors are handled at the node level.** Nodes catch expected failures and write to `JarvisState.error` — RESPONDER formats clean messages for the client. Unexpected exceptions bubble to FastAPI's global handler.
 - **Any node setting `error` routes immediately to RESPONDER.** All downstream nodes are skipped. This is a universal graph rule — no node after a failing node ever runs. RESPONDER formats the error with tier-appropriate detail: Admin gets full technical detail (component, error class, what failed and where), Power gets operational detail (what couldn't be completed, plain reason), Standard gets plain English specific to what the user asked for (no technical terms, but not vague — e.g. "I couldn't retrieve your memories for this request" not "something went wrong"). Regardless of tier, the error is always logged at `ERROR` level so full detail is available on the server.
@@ -127,7 +131,7 @@ When the access token expires, the client uses the refresh token to get a new on
 
 Refresh tokens are stored server-side in a `refresh_tokens` table. The server stores a hash of the token, not the raw value. On logout or forced deauth, the row is marked `revoked = true` — making silent refresh impossible and requiring full re-authentication. This means forced logout actually means forced logout, with no window where a revoked user can keep refreshing.
 
-The server's responsibility on logout is to mark the refresh token `revoked = true`. Client-side credential cleanup is each client's own responsibility — see the TUI Token Management section for TUI-specific behaviour. Web and mobile token storage strategy is deferred to Phase 5 planning, with httpOnly cookies for the refresh token and memory-only for the access token as the likely direction.
+The server's responsibility on logout is to mark the refresh token `revoked = true`. Client-side credential cleanup is each client's own responsibility — token storage and cleanup behaviour per client is covered in Phase 5.
 
 ### WebSocket and Token Invalidation
 
@@ -215,7 +219,7 @@ The `invites` table serves two purposes: onboarding new users and issuing passwo
 
 **Invite flow:**
 1. Admin calls `POST /auth/invite` with `username`, `tier`, `assistant_name` — server creates the invite row and returns the raw token
-2. Admin shares the token with the new family member (text, WhatsApp, etc.). Future: the web dashboard generates a registration link with the token baked in — family member clicks it and lands directly on the registration page.
+2. Admin shares the token with the new family member (text, WhatsApp, etc.). Future: a client generates a registration link with the token baked in — family member clicks it and lands directly on the registration page.
 3. Family member calls `POST /auth/register` with the token and their chosen password — server validates the token, creates the user record, marks the invite `used = true`
 4. Account is active — family member can log in immediately
 
@@ -246,35 +250,6 @@ A daily ofelia job runs a general-purpose maintenance pass. It is intentionally 
 - Purge `invites` rows where `expires_at < now`
 - Purge conversation `history` entries older than `retention_days` per user
 - Count `ERROR`-level log entries in the current log file from the last 24 hours — if over `log_error_threshold`, notify admin via ntfy
-
-### TUI Token Management
-
-The TUI is a long-lived terminal process — the access token can expire mid-session. The TUI handles this silently via a token manager module (`tui/auth.py`):
-
-- On startup, loads stored tokens from `~/.jarvis/auth.json` — if the file does not exist, presents the login prompt immediately
-- Calls `GET /profile` immediately after loading tokens (or after any successful login/refresh) to populate `tier` and `assistant_name` in memory
-- Opens the WebSocket connection immediately on startup — not lazily on first message
-- Before every API request, checks `access_expires_at` in `auth.json` — if within 5 minutes of expiry, calls the `/auth/refresh` endpoint automatically
-- On successful refresh, writes the new access token and updated `access_expires_at` back to `~/.jarvis/auth.json`
-- If the server returns 401 (token version mismatch), triggers silent refresh immediately
-- If the refresh token is also expired or revoked, presents the login prompt
-- On receipt of a `profile` WebSocket frame, calls `GET /profile` and updates the in-memory cache — this is how assistant name and tier changes propagate to active sessions
-- If the WebSocket connection drops (network blip, server restart), the TUI reconnects automatically — same behaviour as the web client
-- On logout (or forced logout via token version mismatch with no valid refresh), `tui/auth.py` immediately closes the WebSocket, deletes `~/.jarvis/auth.json` from disk, clears all data panels (chat history, tasks, memory — no previously seen data remains visible), and returns the user to the login prompt — it does not wait for a subsequent request or message to fail
-- The user never sees an interruption during normal use
-
-`~/.jarvis/auth.json` is chmod 600 and listed in `.gitignore`.
-
-**`~/.jarvis/auth.json` schema:**
-```json
-{
-  "access_token": "eyJ...",
-  "refresh_token": "eyJ...",
-  "access_expires_at": "2026-04-10T14:00:00Z"
-}
-```
-
-`access_expires_at` is an ISO 8601 UTC timestamp. The TUI checks this directly — no JWT decoding required to determine whether refresh is needed.
 
 **`/auth/refresh` contract (Phase 3):** The client sends a JSON body with the raw refresh token and its client type:
 ```json
@@ -1059,23 +1034,6 @@ ROUTER checks `skills_{user_id}` then `skills_shared` before every action. Perso
 
 ---
 
-## 🖥️ Clients
-
-### TUI (Textual)
-Power-user client for Admin and Power tier. Permanent — not being replaced by the web UI, used alongside it. Connects to FastAPI over Tailscale. `client_type: tui` is passed at login and baked into the JWT. Token refresh is handled silently by `tui/auth.py` — see TUI Token Management in the Auth section.
-
-The TUI opens the WebSocket connection immediately on startup and reconnects automatically if the connection drops. The TUI listens for `done` frames and re-fetches data panels listed in the `refresh` array — tasks panel updates automatically when tasks are mutated, with no manual refresh required.
-
-### Web Dashboard — `jarvis.home`
-Full management interface served at `jarvis.home`, proxied by Caddy, accessible over Tailscale. Covers all tiers. Includes chat, task management, memory browsing, skill approval queue, and Admin panel. `client_type: web` passed at login and baked into JWT. Opens WebSocket immediately on login and reconnects automatically on drop.
-
-Token storage strategy for web and mobile is deferred to Phase 5 planning. The likely direction is httpOnly cookies for the refresh token (cannot be read by JavaScript, immune to XSS) and memory-only for the access token (cleared on page close, never touches disk).
-
-### Mobile PWA
-The web dashboard is built mobile-first and installable as a PWA from any browser. No app store required. Works over Tailscale from anywhere. `client_type: mobile` passed at login and baked into JWT.
-
----
-
 ## 🔧 Full Tech Stack
 
 | Component | Technology | Notes |
@@ -1102,7 +1060,8 @@ The web dashboard is built mobile-first and installable as a PWA from any browse
 | Voice TTS | Piper / TBD at Phase 8 | Phase 8 — separate container, FastAPI proxy |
 | Language | Python 3.11+ | |
 | Dev GPU | NVIDIA RTX 3080 (pearlybaker) | CUDA 12.1 |
-| Server GPU | NVIDIA RTX 4070 Ti Super | 16 GB VRAM, CUDA |
+| Server GPU (primary) | NVIDIA RTX 4070 Ti Super | 16 GB VRAM, CUDA — reasoning and coding models |
+| Server GPU (secondary) | TBD — cheaper secondary card | Lightweight models — ROUTER, CONVERSATION, TASKS, MEMORY, WEB, SYSTEM |
 | Test runner | pytest | Unit + integration suites |
 
 ---
@@ -1229,6 +1188,35 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
 - [ ] TUI auth client (`tui/auth.py`) — token storage in `~/.jarvis/auth.json`, silent refresh, handles 401 token version mismatch, deletes `auth.json` on logout, login prompt if `auth.json` missing or refresh token expired/revoked. Calls `GET /profile` on startup and after every login/refresh to populate `tier` and `assistant_name` in memory. Handles `profile` WebSocket frames by re-fetching `GET /profile`.
 - [ ] TUI listens for `done` frames and re-fetches panels listed in `refresh`
 - [ ] Unit tests alongside every node implementation
+
+#### TUI Token Management
+
+The TUI is a long-lived terminal process — the access token can expire mid-session. The TUI handles this silently via a token manager module (`tui/auth.py`):
+
+- On startup, loads stored tokens from `~/.jarvis/auth.json` — if the file does not exist, presents the login prompt immediately
+- Calls `GET /profile` immediately after loading tokens (or after any successful login/refresh) to populate `tier` and `assistant_name` in memory
+- Opens the WebSocket connection immediately on startup — not lazily on first message
+- Before every API request, checks `access_expires_at` in `auth.json` — if within 5 minutes of expiry, calls the `/auth/refresh` endpoint automatically
+- On successful refresh, writes the new access token and updated `access_expires_at` back to `~/.jarvis/auth.json`
+- If the server returns 401 (token version mismatch), triggers silent refresh immediately
+- If the refresh token is also expired or revoked, presents the login prompt
+- On receipt of a `profile` WebSocket frame, calls `GET /profile` and updates the in-memory cache — this is how assistant name and tier changes propagate to active sessions
+- If the WebSocket connection drops (network blip, server restart), the TUI reconnects automatically
+- On logout (or forced logout via token version mismatch with no valid refresh), `tui/auth.py` immediately closes the WebSocket, deletes `~/.jarvis/auth.json` from disk, clears all data panels (chat history, tasks, memory — no previously seen data remains visible), and returns the user to the login prompt — it does not wait for a subsequent request or message to fail
+- The user never sees an interruption during normal use
+
+`~/.jarvis/auth.json` is chmod 600 and listed in `.gitignore`.
+
+**`~/.jarvis/auth.json` schema:**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "access_expires_at": "2026-04-10T14:00:00Z"
+}
+```
+
+`access_expires_at` is an ISO 8601 UTC timestamp. The TUI checks this directly — no JWT decoding required to determine whether refresh is needed.
 - [ ] Pre-commit hook configured — `pytest tests/unit/` blocks commits on failure
 
 **Exit criteria:** JARVIS can search the web, manage tasks (create, update, complete, delete), run shell commands, switch into coding mode (single-agent), handle general conversation via CONVERSATION node, and respond to explicit memory queries via MEMORY node `[pearlybaker only]` — on nomadbaker, verify that the `memory` intent returns a clean ChromaDB unavailable error message. TUI connects to FastAPI via WebSocket, tokens stream word by word. Responses arrive as typed JSON frames. Tasks panel updates automatically when tasks are mutated — `GET /tasks` and `DELETE /tasks/{id}` endpoints verified working and TUI re-fetches on `refresh: ["tasks"]`. All data operations go through repository interfaces with `user_id` — including auth. Conversation history correctly written and loaded across multiple exchanges. Admin notified via ntfy on service failures. Secrets are env-var only. Full auth flow verified end to end: login produces a valid JWT, `GET /profile` returns correct user data, `PATCH /profile` updates `assistant_name` and returns the updated profile, silent refresh works, logout revokes the token. Invite+register verified end to end: Admin generates an invite token via `POST /auth/invite`, a second user registers via `POST /auth/register` with that token, that user logs in and receives a valid JWT, and at minimum one WebSocket chat exchange completes successfully as that user with data correctly scoped to their `user_id`. No external services required to run in dev (memory/skills work deferred to pearlybaker). Queuing and interrupt/confirm contracts verified: queued messages receive `"One moment..."` status frame, non-confirm/cancel messages during interrupt are rejected with appropriate status frame, TUI disables input on `confirm_request`.
@@ -1345,7 +1333,7 @@ Postgres lives on the server — there is no reason to run it locally in dev. SQ
 
 **Server deployment:**
 - [ ] Docker Compose for full JARVIS stack
-- [ ] All services containerised — Postgres, ChromaDB, Ollama, FastAPI, web client
+- [ ] All services containerised — Postgres, ChromaDB, Ollama (primary), Ollama (secondary), FastAPI, web client
 - [ ] Data on `/tank/docker/jarvis/` (ZFS, auto-snapshotted)
 - [ ] Caddy entry — `jarvis.home`
 - [ ] Tailscale access from all devices
@@ -1353,7 +1341,13 @@ Postgres lives on the server — there is no reason to run it locally in dev. SQ
 - [ ] All clients pointed at server — config update only, no code changes
 - [ ] Voice container placeholders in Docker Compose (STT + TTS service definitions, no implementation yet)
 
-**Exit criteria:** JARVIS running on server against Postgres. All clients connect over Tailscale. All data on ZFS. All schema changes go through Alembic.
+**Dual-GPU inference split:**
+- [ ] Second GPU installed — cheaper secondary card dedicated to lightweight inference
+- [ ] Two Ollama instances: primary (4070 Ti Super) serves reasoning and coding models, secondary serves lightweight models (ROUTER, CONVERSATION, TASKS, MEMORY, WEB, SYSTEM, RESPONDER)
+- [ ] `config.yaml` — `ollama_url_primary` and `ollama_url_secondary`
+- [ ] `tools/llm.py` — model-based routing: checks requested model name, routes to the correct Ollama instance. No tier logic needed — the model encodes the workload type.
+
+**Exit criteria:** JARVIS running on server against Postgres. All clients connect over Tailscale. All data on ZFS. All schema changes go through Alembic. Lightweight inference (chat, tasks, routing) never contends with heavy inference (planning, coding).
 
 **Note:** Post-deployment, all development runs against the live server stack over Tailscale. The SQLite dev backends (`auth.db`, `tasks.db`, `history.db`), local vault paths, and `[pearlybaker only]` annotations become redundant at this point and may be retired.
 
@@ -1506,6 +1500,9 @@ The Phase 5 admin panel is intentionally minimal (user management, system status
 
 ### User notifications (`notify_user`)
 A `notify_user(user_id, message, type)` function for user-facing async notifications — background task completion, deadline reminders, etc. Delivery via WebSocket push to the active client, with ntfy as a fallback for offline delivery. Distinct from `notify_admin`.
+
+### Secondary GPU parallel inference (`OLLAMA_NUM_PARALLEL`)
+If monitoring shows the secondary Ollama instance bottlenecking under simultaneous lightweight requests, enable `OLLAMA_NUM_PARALLEL=2` on that instance. Both small models (mistral:7b ~4GB, llama3.1:8b ~5GB) fit simultaneously in 12GB VRAM, leaving headroom for two concurrent generations. Only worth configuring if real usage data shows it is necessary.
 
 ### TUI interrupt channel (`/btw`)
 A secondary input channel for power TUI users — allows a message to be injected mid-invocation without cancelling the current one. Opt-in, TUI-only. All other clients remain strictly one-message-at-a-time.

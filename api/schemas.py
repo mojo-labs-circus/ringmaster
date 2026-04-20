@@ -1,4 +1,10 @@
+from __future__ import annotations
+
+from datetime import datetime
+
 from pydantic import BaseModel
+
+from db.tasks.models import Task
 
 
 # --- Login ---
@@ -77,3 +83,27 @@ class ProfileResponse(BaseModel):
 
 class ProfileUpdateRequest(BaseModel):
     assistant_name: str
+
+
+# --- Tasks ---
+
+class TaskResponse(BaseModel):
+    id: int
+    user_id: str
+    title: str
+    status: str
+    priority: str
+    due_date: datetime | None
+    created_at: datetime
+
+    @classmethod
+    def from_task(cls, task: Task) -> TaskResponse:
+        return cls(
+            id=task.id,
+            user_id=task.user_id,
+            title=task.title,
+            status=task.status,
+            priority=task.priority,
+            due_date=task.due_date,
+            created_at=task.created_at,
+        )

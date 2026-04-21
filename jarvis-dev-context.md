@@ -134,3 +134,4 @@
 | 2026-04-21 (4) | Spec updates — persist.py→vault→ChromaDB flow, dream mode defined, vault structure cleaned up, file watcher added |
 | 2026-04-21 (5) | Bug fixes — seed_db missing disabled field, .env inline comment parsing, test script --host arg |
 | 2026-04-21 (6) | WebSocket logs now show client hostname and IP (Tailscale MagicDNS reverse lookup) |
+| 2026-04-21 (7) | SSH configured — nomadbaker→pearlybaker key auth, password auth disabled on pearlybaker, SSH config added on nomadbaker |

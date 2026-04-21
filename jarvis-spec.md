@@ -911,7 +911,12 @@ def delete_from(self, user_id: str, entry_id: int) -> None:
 
 After the graph completes at RESPONDER and FastAPI has sent the `done` frame, FastAPI fires `memory/persist.py` as an asyncio background task. This fires after every exchange that completes with a `done` frame — it is unconditional with respect to `needs_memory` (every successful exchange is evaluated), but is never scheduled when the global exception handler sends an `error` frame instead. `needs_memory` controls retrieval only. The evaluator inside `memory/persist.py` decides whether anything in the exchange is worth writing to long-term memory; it may determine there is nothing to persist and exit cleanly. This means even exchanges that didn't require memory retrieval (e.g. a simple task mutation) are still evaluated — you never know what might be worth remembering.
 
-`memory/persist.py` evaluates the completed exchange (`current_input` + `response`) and decides whether anything new is worth persisting to ChromaDB — reads `response` not `formatted_response`, which avoids persisting client-specific formatting markup. It then writes to `memory_{user_id}` or `memory_shared` based on the personal → shared classifier. It uses `tools/llm.py` for its inference call and `memory/chroma.py` for the write.
+`memory/persist.py` evaluates the completed exchange (`current_input` + `response`) and decides whether anything new is worth persisting — reads `response` not `formatted_response`, which avoids persisting client-specific formatting markup. If worth persisting, it:
+
+1. Writes a human-readable markdown file to the vault (`01-knowledge/` for facts, `04-conversations/` for notable exchanges) under the appropriate personal or shared path based on the personal → shared classifier. The vault is the source of truth — users can read, edit, or delete these files in Obsidian.
+2. Immediately ingests that file into ChromaDB via `memory/ingest.py` so it is queryable right away. ChromaDB is derived from the vault — if a user edits or deletes a vault file, re-running ingest will reflect that change.
+
+It uses `tools/llm.py` for inference calls, `tools/vault.py` for the vault write, and `memory/chroma.py` for the ChromaDB write.
 
 If a `tools/llm.py` inference call fails, `memory/persist.py` retries that call once. The retry applies independently to each inference step — the evaluator and the classifier are each retried once if they fail; a failure in one does not abort the other. If the evaluator fails after one retry, the task exits and the exchange is not persisted. If the classifier fails after one retry, `memory/persist.py` defaults to writing to `memory_{user_id}` (personal) rather than dropping the memory — it is safer to persist to the wrong scope than to lose the memory entirely. All failures at this stage are logged at `ERROR` level with no admin notification per individual failure. Repeated failures will accumulate in the error log and trigger the daily maintenance job threshold notification if the count is high enough.
 
@@ -1178,7 +1183,7 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
 - [ ] CODE node — single-agent, calls `tools/llm.py` with reasoning model directly (Coding Team subgraph wired in Phase 3.5). Calls `tools/sandbox.py` for code execution. Calls `tools/vault.py` for project context `[pearlybaker only]`. Writes granular `status_message` updates throughout. Includes `skill_context` in Ollama prompt if non-empty.
 - [ ] CONVERSATION node — `graph/nodes/conversation.py`. General chat for all tiers. Calls `tools/llm.py` with `messages`, `retrieved_context`, and `skill_context`. Writes to `response`.
 - [ ] MEMORY node — `graph/nodes/memory.py`. Handles explicit memory queries and delete/forget operations against ChromaDB. All tiers. Scoped to `user_id`. Operates on `retrieved_context` — does not query ChromaDB directly for retrieval. `[pearlybaker only]`.
-- [ ] `memory/persist.py` — asyncio background task fired by FastAPI unconditionally after every exchange. Evaluates exchange, classifies personal vs shared, writes to ChromaDB if anything is worth persisting. Uses `tools/llm.py` and `memory/chroma.py`. `[pearlybaker only]`
+- [ ] `memory/persist.py` — asyncio background task fired by FastAPI unconditionally after every exchange. Evaluates exchange, classifies personal vs shared. If worth persisting: writes markdown to vault (`tools/vault.py`), then immediately ingests into ChromaDB (`memory/ingest.py`, `memory/chroma.py`). Vault is source of truth — ChromaDB is derived from it. Uses `tools/llm.py` for inference. `[pearlybaker only]`
 - [ ] `GET /memory` — stub response in Phase 3 (ChromaDB is `[pearlybaker only]`). Returns an empty JSON array `[]`. Endpoint exists so TUI refresh handling is fully wired and testable.
 - [ ] ROUTER updated — `needs_memory` flag per intent controls retrieval only (conditional on request type for `tasks` — see ROUTER spec), skills check with graceful no-op `[pearlybaker only for skills check]`
 - [ ] RESPONDER updated — reads `client_type` from state, checks `error` field, derives and sets `refresh` list on state from `intent` (RESPONDER is sole owner of `refresh`)
@@ -1464,7 +1469,7 @@ Voice is an add-on — the rest of the platform is fully functional without it. 
 │   ├── chroma.py            # ChromaDB client — collections named by convention
 │   ├── ingest.py            # Vault ingestion pipeline
 │   ├── retrieval.py         # Queries memory_{user_id} + memory_shared
-│   └── persist.py           # Background task — fired unconditionally after every exchange. Evaluates exchange, classifies personal vs shared, writes to ChromaDB if worth persisting.
+│   └── persist.py           # Background task — fired unconditionally after every exchange. Evaluates exchange, classifies personal vs shared, writes markdown to vault then ingests into ChromaDB if worth persisting.
 ├── notifications/
 │   └── notify.py            # ntfy wrapper — notify_admin(error_class, message), 10-min cooldown per (error_class, message)
 ├── maintenance/

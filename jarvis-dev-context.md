@@ -129,3 +129,4 @@
 | 2026-04-13 (4) | Spec revs 27–29 — forced deauth (3-step), clients planned, phases reordered |
 | 2026-04-13 (5) | CLAUDE.md and jarvis-dev-context reorganised — clear separation of concerns |
 | 2026-04-21 (1) | Moved to pearlybaker — full GPU, vault, ChromaDB now available |
+| 2026-04-21 (2) | pearlybaker server setup — systemd user unit, venv, models pulled, server live on 0.0.0.0:8000 |

@@ -131,3 +131,6 @@
 | 2026-04-21 (1) | Moved to pearlybaker — full GPU, vault, ChromaDB now available |
 | 2026-04-21 (2) | pearlybaker server setup — systemd user unit, venv, models pulled, server live on 0.0.0.0:8000 |
 | 2026-04-21 (3) | Tailscale setup — both machines on tailnet, nomadbaker→pearlybaker test verified end-to-end |
+| 2026-04-21 (4) | Spec updates — persist.py→vault→ChromaDB flow, dream mode defined, vault structure cleaned up, file watcher added |
+| 2026-04-21 (5) | Bug fixes — seed_db missing disabled field, .env inline comment parsing, test script --host arg |
+| 2026-04-21 (6) | WebSocket logs now show client hostname and IP (Tailscale MagicDNS reverse lookup) |

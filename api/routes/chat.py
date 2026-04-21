@@ -5,6 +5,7 @@ Uses astream_events to stream tokens and status frames as the graph executes."""
 import json
 import logging
 import secrets
+import socket
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -36,7 +37,12 @@ async def chat_ws(
 
     user = client.user
     token_version_at_connect = user.token_version
-    logger.info("Client connected: %s via %s", user.username, client.client_type)
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    try:
+        client_hostname = socket.gethostbyaddr(client_ip)[0]
+    except OSError:
+        client_hostname = client_ip
+    logger.info("Client connected: %s via %s from %s (%s)", user.username, client.client_type, client_hostname, client_ip)
 
     connections.register(user.username, client)
     is_busy = False
@@ -168,7 +174,7 @@ async def chat_ws(
                 is_busy = False
 
     except WebSocketDisconnect:
-        logger.info("Client disconnected: %s via %s", user.username, client.client_type)
+        logger.info("Client disconnected: %s via %s from %s (%s)", user.username, client.client_type, client_hostname, client_ip)
 
     finally:
         connections.deregister(user.username, client)

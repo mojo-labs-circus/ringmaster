@@ -3,9 +3,11 @@ Throwaway end-to-end verification script — not a permanent test.
 Logs in, opens the chat WebSocket, sends one message, prints all frames received.
 
 Usage:
-    python scripts/test_chat_ws.py
+    python scripts/test_chat_ws.py                        # localhost
+    python scripts/test_chat_ws.py --host 192.168.1.50    # remote server
 """
 
+import argparse
 import asyncio
 import getpass
 import json
@@ -14,18 +16,26 @@ import secrets
 import httpx
 import websockets
 
-BASE_URL = "http://localhost:8000"
-WS_URL = "ws://localhost:8000"
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="localhost", help="Server host (default: localhost)")
+    parser.add_argument("--port", default=8000, type=int, help="Server port (default: 8000)")
+    return parser.parse_args()
 
 
 async def main() -> None:
+    args = parse_args()
+    base_url = f"http://{args.host}:{args.port}"
+    ws_url = f"ws://{args.host}:{args.port}"
+
     username = input("Username [clarkehines]: ").strip() or "clarkehines"
     password = getpass.getpass("Password: ")
 
     # Step 1 — login
-    print("\n→ POST /auth/login")
+    print(f"\n→ POST {base_url}/auth/login")
     async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{BASE_URL}/auth/login", json={
+        resp = await client.post(f"{base_url}/auth/login", json={
             "username": username,
             "password": password,
             "client_type": "tui",
@@ -39,8 +49,8 @@ async def main() -> None:
     print(f"✓ Login OK — token: {token[:20]}...")
 
     # Step 2 — open WebSocket
-    print(f"\n→ WS {WS_URL}/chat/ws")
-    async with websockets.connect(f"{WS_URL}/chat/ws?token={token}") as ws:
+    print(f"\n→ WS {ws_url}/chat/ws")
+    async with websockets.connect(f"{ws_url}/chat/ws?token={token}") as ws:
         print("✓ Connected")
 
         # Step 3 — send a chat frame

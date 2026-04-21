@@ -59,6 +59,7 @@ def main() -> None:
         tier="admin",
         assistant_name=assistant_name,
         token_version=0,
+        disabled=False,
     )
 
     repo.create_user(user)

@@ -6,24 +6,24 @@
 
 | Period | Machine | Notes |
 |---|---|---|
-| Now → ~Apr 20 | nomadbaker | Current — no CUDA, light models only, no vault, no ChromaDB |
-| ~Apr 20 → end of May | pearlybaker | Full GPU, vault, ChromaDB available |
+| Phase 3 start → Apr 20 | nomadbaker | Done — no CUDA, light models only, no vault, no ChromaDB |
+| Apr 20 → end of May | pearlybaker | **Current** — full GPU, vault, ChromaDB available |
 | End of May → server build | nomadbaker | Light dev / prep |
 | Server build onwards | home server | All dev moves server-side permanently |
 
 ---
 
-## Current Machine — nomadbaker
+## Current Machine — pearlybaker
 
-- **Host:** nomadbaker | **User:** clarkehines | **OS:** Arch Linux
-- **GPU:** Intel Arc 140V — no CUDA, no ROCm
+- **Host:** pearlybaker | **User:** clarkehines | **OS:** Arch Linux
+- **GPU:** full CUDA available
 - **Active branch:** `phase-3`
 - **JARVIS code:** `~/projects/jarvis/`
 - **Python venv:** `~/.venvs/jarvis`
 - **Dev DBs:** `~/.jarvis/auth.db`, `~/.jarvis/tasks.db`, `~/.jarvis/history.db`
-- **Vault:** ❌ not available on this machine
-- **ChromaDB:** ❌ not available on this machine
-- **Ollama:** ✅ available — model `qwen2.5:3b` only (no CUDA, CPU inference)
+- **Vault:** ✅ available
+- **ChromaDB:** ✅ available
+- **Ollama:** ✅ available — full model stack (see Model Stack table)
 - **All URLs use `localhost`** — Docker service names do not exist yet
 
 **Home server target: summer 2026.**
@@ -128,3 +128,4 @@
 | 2026-04-13 (3) | Spec audit rev 26; codebase audit — 5 issues fixed |
 | 2026-04-13 (4) | Spec revs 27–29 — forced deauth (3-step), clients planned, phases reordered |
 | 2026-04-13 (5) | CLAUDE.md and jarvis-dev-context reorganised — clear separation of concerns |
+| 2026-04-21 (1) | Moved to pearlybaker — full GPU, vault, ChromaDB now available |

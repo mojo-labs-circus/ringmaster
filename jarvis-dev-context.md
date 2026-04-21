@@ -51,12 +51,13 @@
 | 1 | Foundation — LangGraph + TUI skeleton | ✅ Done |
 | 2 | Memory — ChromaDB + vault ingestion + RAG | ✅ Done |
 | 3 | Tools + FastAPI — all nodes, JWT auth, WebSocket | 🔜 **Current** |
-| 3.5 | Coding Team + Skills System | ⏳ Pending |
 | 4 | Multi-User + Full Auth | ⏳ Pending |
-| 5 | Clients — all 6 clients, built against local dev | ⏳ Pending |
+| 5 | Web Client | ⏳ Pending |
 | 6 | Server Deployment + Postgres Migration (summer 2026) | ⏳ Pending |
-| 7 | Multi-User Onboarding | ⏳ Pending |
-| 8 | Voice | ⏳ Pending |
+| 7 | Family Onboarding | ⏳ Pending |
+| 8 | Coding Team + Skills System | ⏳ Pending |
+| 9 | Remaining Clients (iOS, macOS, Windows, Linux desktop) | ⏳ Pending |
+| 10 | Voice | ⏳ Pending |
 
 ---
 

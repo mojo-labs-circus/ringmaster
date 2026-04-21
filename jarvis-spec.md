@@ -777,8 +777,8 @@ All task mutations other than deletion go through the WebSocket chat interface. 
 - Can execute code via sandboxed subprocess — uses `tools/sandbox.py`
 - No node-entry status frame by default (`STATUS_MESSAGES["code"]` is empty) — writes granular `status_message` updates throughout execution. Content is tier-aware (Admin: full detail including model name and reasoning stage, e.g. `"Reasoning with deepseek-r1:14b — analysing traceback..."`, Power: `"Analysing the problem..."`, Standard: n/a — Standard tier cannot reach CODE)
 - **Phase 3: single-agent only** — uses `deepseek-r1:14b` directly, no subgraph
-- **Phase 3.5: Coding Team subgraph replaces the internals** — the node's external interface (inputs/outputs to the graph) stays identical, so no graph rewiring is needed
-- Coding Team architecture is subject to a dedicated planning session before Phase 3.5 implementation begins
+- **Phase 8: Coding Team subgraph replaces the internals** — the node's external interface (inputs/outputs to the graph) stays identical, so no graph rewiring is needed
+- Coding Team architecture is subject to a dedicated planning session before Phase 8 implementation begins
 
 ### CODING TEAM (Subgraph)
 Multi-agent team for complex coding tasks. Admin and Power tier only. Full internal architecture, sandbox boundaries, interruption model, and loop behaviour to be defined in a dedicated planning session before implementation.
@@ -1073,8 +1073,8 @@ ROUTER checks `skills_{user_id}` then `skills_shared` before every action. Perso
 | Remote access | Tailscale | All clients connect via Tailscale |
 | ZFS storage | `/tank/docker/jarvis/` | Postgres + ChromaDB + vaults on server |
 | Task scheduler | ofelia | Daily maintenance job — purge expired tokens, invites, old history |
-| Voice STT | Whisper / TBD at Phase 8 | Phase 8 — separate container, FastAPI proxy |
-| Voice TTS | Piper / TBD at Phase 8 | Phase 8 — separate container, FastAPI proxy |
+| Voice STT | Whisper / TBD at Phase 10 | Phase 10 — separate container, FastAPI proxy |
+| Voice TTS | Piper / TBD at Phase 10 | Phase 10 — separate container, FastAPI proxy |
 | Language | Python 3.11+ | |
 | Dev GPU | NVIDIA RTX 3080 (pearlybaker) | CUDA 12.1 |
 | Server GPUs | See `server-specs.md` | Dual-GPU inference split — primary for reasoning/coding, secondary for lightweight models |
@@ -1192,7 +1192,7 @@ All tool nodes built with repository pattern and `user_id` scoping from day one.
 - [ ] `tools/tokens.py` — token counting utility. History repository uses this to enforce `CONTEXT_WINDOW_BUDGET`.
 - [ ] WEB node — calls `tools/search.py`. Writes specific `status_message` for each query. Includes `skill_context` in Ollama prompt if non-empty.
 - [ ] SYSTEM node — calls `tools/shell.py` for execution. Confirmation gate via interrupt/confirm. No Ollama streaming before confirmation. On cancel, writes hardcoded cancellation message. Passes both stdout and stderr to Ollama for formatting. Includes `skill_context` in Ollama prompt if non-empty.
-- [ ] CODE node — single-agent, calls `tools/llm.py` with reasoning model directly (Coding Team subgraph wired in Phase 3.5). Calls `tools/sandbox.py` for code execution. Calls `tools/vault.py` for project context `[pearlybaker only]`. Writes granular `status_message` updates throughout. Includes `skill_context` in Ollama prompt if non-empty.
+- [ ] CODE node — single-agent, calls `tools/llm.py` with reasoning model directly (Coding Team subgraph wired in Phase 8). Calls `tools/sandbox.py` for code execution. Calls `tools/vault.py` for project context `[pearlybaker only]`. Writes granular `status_message` updates throughout. Includes `skill_context` in Ollama prompt if non-empty.
 - [ ] CONVERSATION node — `graph/nodes/conversation.py`. General chat for all tiers. Calls `tools/llm.py` with `messages`, `retrieved_context`, and `skill_context`. Writes to `response`.
 - [ ] MEMORY node — `graph/nodes/memory.py`. Handles explicit memory queries and delete/forget operations against ChromaDB. All tiers. Scoped to `user_id`. Operates on `retrieved_context` — does not query ChromaDB directly for retrieval. `[pearlybaker only]`.
 - [ ] `memory/persist.py` — asyncio background task fired by FastAPI unconditionally after every exchange. Evaluates exchange, classifies personal vs shared. If worth persisting: writes markdown to vault (`tools/vault.py`), then immediately ingests into ChromaDB (`memory/ingest.py`, `memory/chroma.py`). Vault is source of truth — ChromaDB is derived from it. Uses `tools/llm.py` for inference. `[pearlybaker only]`
@@ -1237,23 +1237,6 @@ The TUI is a long-lived terminal process — the access token can expire mid-ses
 
 **Exit criteria:** JARVIS can search the web, manage tasks (create, update, complete, delete), run shell commands, switch into coding mode (single-agent), handle general conversation via CONVERSATION node, and respond to explicit memory queries via MEMORY node `[pearlybaker only]` — on nomadbaker, verify that the `memory` intent returns a clean ChromaDB unavailable error message. TUI connects to FastAPI via WebSocket, tokens stream word by word. Responses arrive as typed JSON frames. Tasks panel updates automatically when tasks are mutated — `GET /tasks` and `DELETE /tasks/{id}` endpoints verified working and TUI re-fetches on `refresh: ["tasks"]`. All data operations go through repository interfaces with `user_id` — including auth. Conversation history correctly written and loaded across multiple exchanges. Admin notified via ntfy on service failures. Secrets are env-var only. Full auth flow verified end to end: login produces a valid JWT, `GET /profile` returns correct user data, `PATCH /profile` updates `assistant_name` and returns the updated profile, silent refresh works, logout revokes the token. Invite+register verified end to end: Admin generates an invite token via `POST /auth/invite`, a second user registers via `POST /auth/register` with that token, that user logs in and receives a valid JWT, and at minimum one WebSocket chat exchange completes successfully as that user with data correctly scoped to their `user_id`. No external services required to run in dev (memory/skills work deferred to pearlybaker). Queuing and interrupt/confirm contracts verified: queued messages receive `"One moment..."` status frame, non-confirm/cancel messages during interrupt are rejected with appropriate status frame, TUI disables input on `confirm_request`.
 
-### Phase 3.5 — Coding Team + Skills System
-
-**Coding Team requires a dedicated planning session before implementation begins.** Internal architecture (sandbox boundaries, interruption model, loop behaviour, Tester constraints) must be fully specified before any code is written.
-
-- [ ] Dedicated Coding Team planning session
-- [ ] Architect, Coder, Reviewer, Tester nodes as LangGraph subgraph
-- [ ] Each subgraph node writes its own `status_message` — "Architect planning...", "Coder implementing...", "Reviewer checking...", "Tester running..."
-- [ ] On cancel at any interrupt point, node writes hardcoded cancellation message derived from `interrupt_payload` — no inference call
-- [ ] Tier gate — Admin and Power only
-- [ ] Skills vault structure created (personal + shared)
-- [ ] Skill ingestion — personal (`skills_{user_id}`) and shared (`skills_shared`) pipelines
-- [ ] ROUTER checks personal + shared skills before every action
-- [ ] Assistant proposes skills → `pending/` for review
-- [ ] Reviewer → Coder loop with configurable max iterations
-
-**Exit criteria:** Complex coding task runs through full team loop. A shared skill is approved and used across multiple users.
-
 ### Phase 4 — Multi-User + Full Auth
 
 FastAPI skeleton exists from Phase 3. This phase completes the multi-user platform.
@@ -1269,31 +1252,34 @@ FastAPI skeleton exists from Phase 3. This phase completes the multi-user platfo
 
 **Exit criteria:** Three test users exist — one of each tier (admin, power, standard) — all created via invite flow except the admin. All three can chat simultaneously with fully isolated data. Tier gating verified (standard user cannot access code or system nodes). Assistant names and tiers are hotswappable — changes propagate to all active connections via `profile` WebSocket push within seconds, no re-login required.
 
-### Phase 5 — Clients *(developed against local dev setup)*
+### Phase 5 — Web Client
 
-Six clients, each in its own repo, all connecting to FastAPI over Tailscale. No client has a privileged path to the backend — the API contract is the same for all. Nothing is accessible over the open internet.
+The web client is the onboarding gateway — zero install, works in any browser, accessible from every family device as soon as the server is live in Phase 6.
 
-Clients are built and tested against the local SQLite dev setup before the server exists. Once Phase 6 brings the server online, all clients point there instead — no client code changes required, just a config update.
+#### Family device breakdown
 
-#### Client summary
+| Person | Devices |
+|---|---|
+| Clarke (admin) | Linux + iOS |
+| Brother | Windows + iOS |
+| Everyone else | macOS + iOS |
 
-| Repo | Platform | Stack | Tier | Admin panel |
-|---|---|---|---|---|
-| `jarvis-tui` | Linux + Windows | Python/Textual | Admin/Power | Yes (tier-gated — shown for Admin) |
-| `jarvis-desktop-linux` | Linux | Python/GTK4 + libadwaita | All | Yes |
-| `jarvis-desktop-windows` | Windows | C#/WinUI 3 | All | No |
-| `jarvis-desktop-macos` | macOS | Swift/SwiftUI | All | No |
-| `jarvis-ios` | iOS | Swift/SwiftUI | All | Yes |
-| `jarvis-web` | Browser | React | All | No |
+Every family member has iOS. No Android devices in the family.
 
-`jarvis-swift-core` — separate repo, a shared Swift Package consumed by both `jarvis-desktop-macos` and `jarvis-ios`. Contains auth, token refresh, WebSocket client, and API models.
+#### Tailscale + NordVPN — known per-platform situation
 
-#### Repo extraction (done first)
-- [ ] Extract TUI into `jarvis-tui` — own venv + requirements, no imports from backend repo
-- [ ] Create `jarvis-swift-core` — shared Swift Package for macOS and iOS
-- [ ] Create remaining client repos with basic project scaffolding
+All clients connect over Tailscale. Family members using NordVPN need to handle coexistence per platform:
 
-#### Features — all clients
+| Platform | Fix | Notes |
+|---|---|---|
+| Linux | `nordvpn whitelist add subnet 100.64.0.0/10 && nordvpn whitelist add port 41641 protocol UDP` | One-time CLI setup |
+| macOS | NordVPN app → Split Tunneling → add `100.64.0.0/10` to bypass list | GUI only — no CLI needed |
+| Windows | NordVPN app → Split Tunneling → Bypass VPN → add `100.64.0.0/10` | GUI only — no CLI needed |
+| iOS | **Not fixable.** iOS allows only one active VPN at a time. Tailscale and NordVPN cannot run simultaneously. | Toggle NordVPN off when using JARVIS |
+
+The iOS limitation is a hard iOS platform constraint — not a configuration issue. It affects every family member. At home on WiFi, NordVPN is typically inactive so the conflict rarely occurs in practice.
+
+#### Features
 - [ ] Login screen — prompts for credentials, stores tokens on success
 - [ ] Chat panel — full WebSocket flow, streaming token display
 - [ ] Tasks panel — reads `GET /tasks`, updates automatically on `done` frame `refresh` array
@@ -1304,36 +1290,13 @@ Clients are built and tested against the local SQLite dev setup before the serve
 - [ ] Handles `profile` WebSocket frames — re-fetches `GET /profile` on receipt
 - [ ] Reconnects automatically on dropped WebSocket connection
 
-#### Admin panel — TUI, Linux desktop, iOS only
-- [ ] User management — invite generation, token invalidation, tier changes
-- [ ] System status — active connections, server health
-- Intentionally minimal — a full observability and statistics dashboard is a future addition
-
 #### Token storage
-Per-client storage is the current approach. Centralised storage via the server's Vaultwarden instance is a planned future upgrade — see Future Work.
-
-| Client | Storage |
-|---|---|
-| TUI | `~/.jarvis/auth.json` (Linux + Windows) |
-| Linux desktop | `~/.jarvis/auth.json` or libsecret keyring |
-| Windows desktop | Windows Credential Manager |
-| macOS desktop | Keychain |
-| iOS | Keychain |
-| Web | httpOnly cookie for refresh token, memory-only for access token |
+httpOnly cookie for refresh token, memory-only for access token.
 
 #### Distribution
-| Client | Method |
-|---|---|
-| TUI | Install script — Linux (bash) and Windows (PowerShell) |
-| Linux desktop | Install script (clone, venv, deps, optional `.desktop` file) |
-| Windows desktop | Installer package (WiX or similar) |
-| macOS desktop | `.app` bundle, direct download |
-| iOS | TestFlight |
-| Web | Deployed at `jarvis.home` via Docker Compose (service definition added in Phase 6) |
+Deployed at `jarvis.home` via Docker Compose (service definition added in Phase 6). No install required — accessible from any browser on the tailnet.
 
-Auto-update for desktop apps is a future addition — see Future Work.
-
-**Exit criteria:** All six clients in separate repos with install/setup scripts. Full family accessible via their preferred client over Tailscale. Admin can generate an invite token, change a user's tier, and force-deauth a user from the Linux desktop, TUI, or iOS app. macOS and iOS share `jarvis-swift-core`.
+**Exit criteria:** Web client live at `jarvis.home`. Full family can register via invite token, log in, and use JARVIS from a browser. Tasks panel updates automatically on `refresh`. Silent token refresh works. Ready for Phase 7 family onboarding.
 
 ### Phase 6 — Server Deployment + Postgres Migration *(summer 2026)*
 
@@ -1370,7 +1333,11 @@ Postgres lives on the server — there is no reason to run it locally in dev. SQ
 **Post-Phase-6 cleanup task:** Once the server is running and all clients are connecting to it, do a full cleanup pass: remove all `[pearlybaker only]` annotations and conditional code paths, retire nomadbaker stand-in model config, consolidate all vault and data paths to `/tank/docker/jarvis/`, and remove the SQLite dev scaffolding from the spec, codebase, and databases.
 
 ### Phase 7 — Multi-User Onboarding
-- [ ] Family member accounts created via invite flow
+
+Onboarding begins as soon as the web client is live (Phase 5) — family members start using JARVIS via `jarvis.home` while the remaining native clients (Phase 9) are still being built.
+
+- [ ] Family members get on Tailscale — invite link sent per person, platform-specific NordVPN guide where needed (see Phase 5 NordVPN table)
+- [ ] Family member accounts created via invite flow — all register via `jarvis.home` in a browser
 - [ ] Per-user vaults initialised
 - [ ] Shared family vault populated with household knowledge
 - [ ] Shared vault ingested — `memory_shared` ChromaDB collection populated
@@ -1381,14 +1348,91 @@ Postgres lives on the server — there is no reason to run it locally in dev. SQ
 
 **Exit criteria:** All family members using JARVIS daily. Shared and personal memory working correctly. ROUTER successfully retrieves from both personal and shared skills collections.
 
-### Phase 8 — Voice
+### Phase 8 — Coding Team + Skills System
 
-Voice is an add-on — the rest of the platform is fully functional without it. The specific STT/TTS software may change before this phase is reached given the pace of progress in the voice AI space; the architecture below is the current best guess but should be revisited at Phase 8 planning time.
+**Coding Team requires a dedicated planning session before implementation begins.** Internal architecture (sandbox boundaries, interruption model, loop behaviour, Tester constraints) must be fully specified before any code is written.
+
+- [ ] Dedicated Coding Team planning session
+- [ ] Architect, Coder, Reviewer, Tester nodes as LangGraph subgraph
+- [ ] Each subgraph node writes its own `status_message` — "Architect planning...", "Coder implementing...", "Reviewer checking...", "Tester running..."
+- [ ] On cancel at any interrupt point, node writes hardcoded cancellation message derived from `interrupt_payload` — no inference call
+- [ ] Tier gate — Admin and Power only
+- [ ] Skills vault structure created (personal + shared)
+- [ ] Skill ingestion — personal (`skills_{user_id}`) and shared (`skills_shared`) pipelines
+- [ ] ROUTER checks personal + shared skills before every action
+- [ ] Assistant proposes skills → `pending/` for review
+- [ ] Reviewer → Coder loop with configurable max iterations
+
+**Exit criteria:** Complex coding task runs through full team loop. A shared skill is approved and used across multiple users. Coding Team used to assist with Phase 9 client development.
+
+### Phase 9 — Remaining Clients
+
+Four native clients, built with Coding Team assistance (Phase 8). `jarvis-tui` already exists and covers Clarke throughout development — it is extracted to its own repo here.
+
+#### Build order
+
+| Priority | Repo | Platform | Who uses it | Stack | Admin panel |
+|---|---|---|---|---|---|
+| 1 | `jarvis-ios` | iOS | Everyone | Swift/SwiftUI | Yes |
+| 2 | `jarvis-desktop-macos` | macOS | Everyone else | Swift/SwiftUI | No |
+| 3 | `jarvis-desktop-windows` | Windows | Brother | C#/WinUI 3 | No |
+| 4 | `jarvis-desktop-linux` | Linux | Clarke | Python/GTK4 + libadwaita | Yes |
+
+`jarvis-swift-core` — separate repo, a shared Swift Package consumed by both `jarvis-desktop-macos` and `jarvis-ios`. Contains auth, token refresh, WebSocket client, and API models. Built before either Swift client.
+
+#### Repo extraction (done first)
+- [ ] Extract TUI into `jarvis-tui` — own venv + requirements, no imports from backend repo
+- [ ] Create `jarvis-swift-core` — shared Swift Package for macOS and iOS
+- [ ] Create remaining client repos with basic project scaffolding
+
+#### Features — all clients
+- [ ] Login screen — prompts for credentials, stores tokens on success
+- [ ] Chat panel — full WebSocket flow, streaming token display
+- [ ] Tasks panel — reads `GET /tasks`, updates automatically on `done` frame `refresh` array
+- [ ] Memory panel — reads `GET /memory` (stub until Phase 7)
+- [ ] Skill approval queue — Admin/Power only, shown based on JWT tier claim
+- [ ] User settings — assistant name, preferences
+- [ ] Silent token refresh — handled transparently, user never sees it
+- [ ] Handles `profile` WebSocket frames — re-fetches `GET /profile` on receipt
+- [ ] Reconnects automatically on dropped WebSocket connection
+
+#### Admin panel — TUI, Linux desktop, iOS only
+- [ ] User management — invite generation, token invalidation, tier changes
+- [ ] System status — active connections, server health
+- Intentionally minimal — a full observability and statistics dashboard is a future addition
+
+#### Token storage
+Per-client storage is the current approach. Centralised storage via the server's Vaultwarden instance is a planned future upgrade — see Future Work.
+
+| Client | Storage |
+|---|---|
+| TUI | `~/.jarvis/auth.json` |
+| Linux desktop | `~/.jarvis/auth.json` or libsecret keyring |
+| Windows desktop | Windows Credential Manager |
+| macOS desktop | Keychain |
+| iOS | Keychain |
+
+#### Distribution
+| Client | Method |
+|---|---|
+| TUI | Install script (bash) |
+| Linux desktop | Install script (clone, venv, deps, optional `.desktop` file) |
+| Windows desktop | Installer package (WiX or similar) |
+| macOS desktop | `.app` bundle, direct download |
+| iOS | TestFlight |
+
+Auto-update for desktop apps is a future addition — see Future Work.
+
+**Exit criteria:** All native clients functional. Admin can generate an invite token, change a user's tier, and force-deauth a user from the TUI or iOS app. macOS and iOS share `jarvis-swift-core`. Full family has their preferred native client alongside the web client. Base development complete.
+
+### Phase 10 — Voice
+
+Voice is an add-on — the rest of the platform is fully functional without it. The specific STT/TTS software may change before this phase is reached given the pace of progress in the voice AI space; the architecture below is the current best guess but should be revisited at Phase 10 planning time.
 
 **Planned architecture:**
 - STT and TTS each run as separate Docker containers with internal API endpoints
 - FastAPI proxies STT/TTS requests to these containers — clients never call them directly
-- Phase 6's Docker Compose will include placeholder service definitions for both containers so the internal network topology is correct from the start, even before Phase 8 implements them properly
+- Phase 6's Docker Compose will include placeholder service definitions for both containers so the internal network topology is correct from the start, even before Phase 10 implements them properly
 
 **Checklist:**
 - [ ] STT container — Whisper (or equivalent at time of implementation)
@@ -1512,7 +1556,7 @@ Desktop clients (Linux, Windows, macOS) have no auto-update mechanism — users 
 Per-client token storage (auth.json, Keychain, Credential Manager) works but means credentials are siloed per device. Future: clients authenticate against Vaultwarden on the server, so tokens are centralised and consistent across all devices. Requires Vaultwarden API integration in each client.
 
 ### Admin observability dashboard
-The Phase 5 admin panel is intentionally minimal (user management, system status). A full dashboard — usage metrics, per-user activity, model performance, memory growth over time — is a post-base-development addition once the platform has enough runtime data to make it useful.
+The Phase 9 admin panel (TUI + iOS) is intentionally minimal (user management, system status). A full dashboard — usage metrics, per-user activity, model performance, memory growth over time — is a post-base-development addition once the platform has enough runtime data to make it useful.
 
 ### User notifications (`notify_user`)
 A `notify_user(user_id, message, type)` function for user-facing async notifications — background task completion, deadline reminders, etc. Delivery via WebSocket push to the active client, with ntfy as a fallback for offline delivery. Distinct from `notify_admin`.
@@ -1530,4 +1574,4 @@ A deeper memory consolidation pass that strengthens important memories, merges r
 A direct task edit REST endpoint. Not needed while all mutations go through the chat interface, but may become obvious once the web dashboard is built. Trivial to add at that point.
 
 ### Voice mode in all clients
-Phase 8 adds STT/TTS infrastructure and voice mode to the TUI. Extending voice input/output to the desktop and iOS clients is left for after Phase 8 proves the architecture.
+Phase 10 adds STT/TTS infrastructure and voice mode to the TUI. Extending voice input/output to the desktop and iOS clients is left for after Phase 10 proves the architecture.

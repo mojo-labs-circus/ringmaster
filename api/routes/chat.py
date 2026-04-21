@@ -39,7 +39,7 @@ async def chat_ws(
     token_version_at_connect = user.token_version
     client_ip = websocket.client.host if websocket.client else "unknown"
     try:
-        client_hostname = socket.gethostbyaddr(client_ip)[0]
+        client_hostname = socket.gethostbyaddr(client_ip)[0].split(".")[0]
     except OSError:
         client_hostname = client_ip
     logger.info("Client connected: %s via %s from %s (%s)", user.username, client.client_type, client_hostname, client_ip)

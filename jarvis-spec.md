@@ -913,8 +913,10 @@ After the graph completes at RESPONDER and FastAPI has sent the `done` frame, Fa
 
 `memory/persist.py` evaluates the completed exchange (`current_input` + `response`) and decides whether anything new is worth persisting — reads `response` not `formatted_response`, which avoids persisting client-specific formatting markup. If worth persisting, it:
 
-1. Writes a human-readable markdown file to the vault (`01-knowledge/` for facts, `04-conversations/` for notable exchanges) under the appropriate personal or shared path based on the personal → shared classifier. The vault is the source of truth — users can read, edit, or delete these files in Obsidian.
-2. Immediately ingests that file into ChromaDB via `memory/ingest.py` so it is queryable right away. ChromaDB is derived from the vault — if a user edits or deletes a vault file, re-running ingest will reflect that change.
+1. Writes a raw dated markdown capture to `00-inbox/` under the appropriate personal or shared vault path, based on the personal → shared classifier. One file per memory unit — minimal formatting, just the captured fact or exchange and a timestamp.
+2. Immediately ingests that file into ChromaDB via `memory/ingest.py` so it is queryable right away. The raw capture is usable immediately even before dream has run.
+
+The vault is the source of truth — users can read, edit, or delete any vault file in Obsidian. ChromaDB is always derived from the vault.
 
 It uses `tools/llm.py` for inference calls, `tools/vault.py` for the vault write, and `memory/chroma.py` for the ChromaDB write.
 
@@ -924,7 +926,7 @@ On ChromaDB unavailable: logs the failure and calls `notify_admin("chromadb_unav
 
 **Future work:** Two planned additions to the memory system, to be designed and implemented in later phases:
 - **Memory pruning** — a scheduled maintenance pass (added to `maintenance/cleanup.py`) that reviews long-term memory and removes stale or superseded entries. Some memories become irrelevant over time.
-- **Dream mode** — a deeper consolidation pass that strengthens important memories, merges redundant entries, and surfaces patterns. Heavier than pruning and intended to run less frequently. Architecture TBD.
+- **Dream mode** — a consolidation pass that runs on a schedule (e.g. nightly). Reads raw captures from `00-inbox/`, consolidates them into well-structured, human-readable markdown files in the appropriate vault folders (`01-knowledge/`, `04-conversations/`, etc.) with clear headings and sections — organised by topic, not a flat list of facts. Clears the inbox once consolidated. Then triggers a full re-ingest of the affected ChromaDB collections so the clean structured versions replace the raw captures. The result is a vault you can open in Obsidian and actually understand — a living picture of what JARVIS knows about you.
 
 ### Personal → Shared Classification
 
@@ -948,37 +950,47 @@ The user can always override explicitly: "add this to the family brain" or "keep
 
 `create_tables()` is called from FastAPI's lifespan context manager on startup, conditional on `DB_BACKEND == "sqlite"`. It is never called at module import time. Using `CREATE TABLE IF NOT EXISTS` means it is safe to call on every startup — it will not alter or overwrite existing tables. When the schema changes during development, delete the relevant `.db` file and let startup recreate it: delete `~/.jarvis/auth.db` for auth tables, `~/.jarvis/tasks.db` for tasks, `~/.jarvis/history.db` for history. Startup will recreate the file and all tables in it. Proper migrations (Alembic) are introduced in Phase 6.
 
+### Vault File Watcher
+
+persist.py keeps ChromaDB in sync for writes JARVIS makes. But users may also edit or delete vault files directly in Obsidian — ChromaDB won't know about those changes until something triggers a re-ingest.
+
+A background file watcher handles this. Using `watchfiles` (already a dependency via uvicorn), FastAPI starts a watcher on `{vault_base}` at startup that monitors for `.md` file changes. On change or deletion, it triggers a targeted re-ingest of the affected file into the appropriate ChromaDB collection. This runs as an asyncio background task — it does not block the server.
+
+The watcher starts only when a vault path exists — graceful no-op on nomadbaker where no vault is present. It is a permanent feature of the system, running on pearlybaker and the home server alike.
+
 ### Vault Structure
 
 Per-user vault (`{memory.vault_base}/{user_id}/` — on pearlybaker this resolves via the `~/jarvis-brain` symlink to `/mnt/hdd/jarvis/<username>/`):
 ```
 <username>/
-├── 00-inbox/          # Unprocessed thoughts
-├── 01-knowledge/      # Facts, research, references
+├── 00-inbox/          # Raw memory captures from persist.py — cleared by dream mode
+├── 01-knowledge/      # Consolidated knowledge — structured by dream mode, human-readable
 ├── 02-skills/         # Procedural memory
 │   ├── approved/      # Live skills the assistant can use
 │   ├── pending/       # Candidate skills awaiting review
 │   └── retired/       # Old skills kept for reference
 ├── 03-projects/       # One folder per project
-├── 04-conversations/  # Notable exchanges
+├── 04-conversations/  # Notable exchanges — consolidated by dream mode
 ├── 05-people/         # Contact notes
-├── 06-tasks/          # Task archive
-├── 07-system/         # Assistant config, spec
-└── 08-journal/        # Daily notes
+├── 06-system/         # Assistant config, spec
+└── 07-journal/        # Daily notes
 ```
+
+**Note:** Tasks are not in the vault — they live in the tasks database. The vault holds unstructured knowledge and memory only.
 
 Shared vault (`{memory.vault_base}/shared/` — on pearlybaker: `/mnt/hdd/jarvis/shared/`):
 ```
 shared/
-├── 00-inbox/          # Unprocessed shared items
-├── 01-knowledge/      # Family-wide facts and reference
+├── 00-inbox/          # Raw shared memory captures — cleared by dream mode
+├── 01-knowledge/      # Consolidated family knowledge — structured by dream mode
 ├── 02-calendar/       # Shared events and schedules
-├── 03-tasks/          # Shared household tasks
-├── 04-people/         # Shared contacts
-└── 05-skills/         # Shared approved skills
+├── 03-people/         # Shared contacts
+└── 04-skills/         # Shared approved skills
     ├── approved/
     └── pending/
 ```
+
+**Note:** Shared tasks are not in the vault — they live in the tasks database.
 
 ---
 

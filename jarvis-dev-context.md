@@ -130,3 +130,4 @@
 | 2026-04-13 (5) | CLAUDE.md and jarvis-dev-context reorganised — clear separation of concerns |
 | 2026-04-21 (1) | Moved to pearlybaker — full GPU, vault, ChromaDB now available |
 | 2026-04-21 (2) | pearlybaker server setup — systemd user unit, venv, models pulled, server live on 0.0.0.0:8000 |
+| 2026-04-21 (3) | Tailscale setup — both machines on tailnet, nomadbaker→pearlybaker test verified end-to-end |

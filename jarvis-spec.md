@@ -15,6 +15,39 @@ Every client talks to the same backend over Tailscale. The server is the product
 
 **Core principle: Our AI. Our data. Our server.**
 
+**Core principle: Augment, don't replace.**
+
+JARVIS is designed to make its users sharper, not more dependent. Every response should leave the user more capable than before — not just with a problem solved, but with a better understanding of how to think about that class of problem. This means Jarvis explains its reasoning, asks what the user thinks before weighing in on decisions, and pushes back when something deserves more thought. One of the most important parts of thinking is thinking about thinking — Jarvis models that by being transparent about its own process, surfacing uncertainty, and naming when it doesn't know something rather than projecting false confidence.
+
+This is a platform-level value, not a user preference. It is not configurable and does not vary between users or tiers. The goal is the same for every family member: a relationship with AI that keeps humans in the loop, builds understanding over time, and resists the quiet drift toward outsourcing your own judgment.
+
+---
+
+## ⚖️ Code of Ethics
+
+JARVIS operates under a fixed set of principles that apply to every user, every tier, and every conversation. These are not configurable — they are baked into the platform at the system prompt level and enforced by the constitutional check node. No user setting, admin override, or prompt instruction can remove them.
+
+**Principles:**
+
+1. **Augment, don't replace.** Jarvis works with the user, not for them. It favours responses that build understanding over responses that just hand over an answer.
+
+2. **Think about thinking.** Jarvis models good metacognition — it is transparent about how it arrived at a conclusion, surfaces its uncertainty, and encourages the user to reflect on their own reasoning process, not just accept the output.
+
+3. **Honesty over comfort.** Jarvis does not project false confidence. It names what it doesn't know. It pushes back when the user is about to do something without thinking it through.
+
+4. **Explain the reasoning.** For non-trivial decisions, Jarvis shares its reasoning before its conclusion. The user should always be able to follow the logic, not just receive the answer.
+
+5. **Respect autonomy.** Jarvis informs and suggests — it does not decide for the user. On consequential decisions, it asks what the user thinks before offering its own view.
+
+*More principles to be added as the system prompt is authored.*
+
+### Enforcement
+
+Ethics principles are enforced at two layers:
+
+- **System prompt identity framing** — principles are embedded as part of Jarvis's identity, not as a rule list. Identity framing ("you believe X") is significantly harder to argue a model out of than instruction framing ("rule 3: never do Z").
+- **Constitutional check node** — a lightweight model runs as a concurrent async task while tokens are streaming. It watches the token buffer in real time and the moment it detects a violation it fires a `truncate` frame — the client strips back to the last clean token, and the corrected continuation streams immediately after. Zero latency on the happy path; violations are caught and corrected mid-stream rather than after the fact. See the WebSocket frame contract for `truncate` and `retract` frame definitions.
+
 ---
 
 ## 🏗️ Architecture Overview
@@ -450,6 +483,8 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 {"type": "confirm",         "message_id": "abc123"}
 {"type": "cancel",          "message_id": "abc123"}
 {"type": "profile",         "message_id": "__push__"}
+{"type": "truncate",        "message_id": "abc123", "token_count": 12}
+{"type": "retract",         "message_id": "abc123", "replacement": "...corrected response..."}
 ```
 
 **Frame types:**
@@ -464,6 +499,8 @@ Every frame is a JSON object with a `type` field. The client pattern-matches on 
 | `confirm` | client → server | User approved the pending action — graph resumes. `message_id` correlates to the `confirm_request` that triggered it. |
 | `cancel` | client → server | User cancelled the pending action — graph aborts the command cleanly. `message_id` correlates to the `confirm_request` that triggered it. On cancel, control returns to the user — if they want to redirect or explain, their next message handles it naturally. |
 | `profile` | server → client | Profile data has changed — client should call `GET /profile` and update its local cache. Sent to all active connections for the user on any `assistant_name` or `tier` change. |
+| `truncate` | server → client | Constitutional check detected a violation mid-stream — client strips back to `token_count` tokens already displayed. Corrected continuation follows immediately as normal `token` frames. Only sent during active streaming; the happy path produces no truncate frame. |
+| `retract` | server → client | Post-stream correction for async operational outcomes (e.g. a task write failed after streaming completed, a web result contradicted a confident claim). Client replaces the full displayed response with `replacement`. Distinct from `truncate` — this fires after the `done` frame, not during streaming. |
 
 ### message_id
 
@@ -833,6 +870,16 @@ loop (configurable max) or surface to user for a decision
 - **Execution sequence:** (1) SYSTEM writes a `status_message` — "Composing command..." (tier-aware: Admin: `"Translating request into shell command via tools/llm.py..."`, Power: `"Working out the command..."`, Standard: n/a) — then calls Ollama to translate the natural language request into a concrete shell command. This inference is internal and not streamed as `token` frames. (2) SYSTEM writes the command to `interrupt_payload` and calls `interrupt()`. (3) FastAPI sends `confirm_request` frame — client disables input and renders a confirmation prompt (e.g. a popup with confirm/cancel). Pre-interrupt phase is otherwise silent from a `status_message` perspective — the `confirm_request` frame handles all pre-execution communication. (4) If confirmed, SYSTEM writes a `status_message` immediately before execution — "Executing now..." (tier-aware: Admin: `"Executing: '{command}' via tools/shell.py..."`, Power: `"Running command: '{command}'..."`, Standard: n/a) — then the command executes via `tools/shell.py`. If cancelled, SYSTEM writes a hardcoded cancellation message to `response` — no further Ollama call.
 - **After confirmed execution:** `tools/shell.py` captures stdout and stderr separately. SYSTEM passes both to Ollama to format and summarise into `response` — the response includes context about what came from each channel, with tier-appropriate detail (Admin sees which output came from stdout vs stderr; Standard gets a plain language summary of what happened). Four distinct outcomes: (a) stdout and/or stderr present → Ollama formats both into `response`; (b) both empty, exit code 0 → hardcoded "Done. `<command>` completed successfully.", no Ollama call; (c) both empty, non-zero exit code → hardcoded "Command failed with exit code N and produced no output."; (d) `tools/shell.py` itself cannot spawn the subprocess → sets `error` on state, which triggers the universal error routing rule. This last case is the only one that sets `error` — command-level failures (including stderr output) always go through `response`.
 - The client will never receive `token` frames before a `confirm_request` frame from SYSTEM — all token streaming happens after confirmation, or not at all on cancel. `status_message` frames may arrive before the `confirm_request` (the "Composing command..." phase) and after it (the "Executing now..." phase).
+
+### CONSTITUTIONAL
+- Runs as a concurrent async task launched by FastAPI at the moment token streaming begins — not a LangGraph node in the graph, but a parallel coroutine
+- Consumes the token buffer as it fills, reading ahead of what has been sent to the client
+- When a violation is detected mid-stream: FastAPI sends a `truncate` frame with `token_count` set to the number of clean tokens already sent, halts the current stream, generates a corrected continuation, and streams it as normal `token` frames from that point
+- When no violation is detected: the coroutine completes silently — no frame sent, no latency added
+- Uses the lightweight/fast model from `config.yaml` — watching a stream for ethics violations is a simple binary task, not a reasoning task
+- The ethics principles are hardcoded in this node — not loaded from config or any user-editable source. Changing them requires a code change, by design
+- `retract` (post-stream async correction) is a separate mechanism owned by individual nodes — CONSTITUTIONAL only ever fires `truncate`
+- Admin-tier status messages surface the check result (`"Constitutional check: passed"` or `"Constitutional check: violation at token 12 — truncating"`). Power and Standard tiers see nothing — invisible on the happy path, `truncate` handles the violation case without surfacing internals
 
 ### RESPONDER
 - Reads `client_type` from `JarvisState` — formats into `formatted_response` accordingly
@@ -1547,31 +1594,4 @@ Voice is an add-on — the rest of the platform is fully functional without it. 
 
 ## 🔮 Future Work
 
-Additions planned after all phases are complete. Not tied to any specific phase — these get tackled once the core platform is stable and the priority feels right.
-
-### Client auto-update
-Desktop clients (Linux, Windows, macOS) have no auto-update mechanism — users reinstall manually when a new version is available. A lightweight solution: the app pings a version endpoint on the server at startup, and prompts the user to re-download if behind. Applies to `jarvis-desktop-linux`, `jarvis-desktop-windows`, and `jarvis-desktop-macos`. iOS (TestFlight) and web handle updates automatically.
-
-### Centralised token storage via Vaultwarden
-Per-client token storage (auth.json, Keychain, Credential Manager) works but means credentials are siloed per device. Future: clients authenticate against Vaultwarden on the server, so tokens are centralised and consistent across all devices. Requires Vaultwarden API integration in each client.
-
-### Admin observability dashboard
-The Phase 9 admin panel (TUI + iOS) is intentionally minimal (user management, system status). A full dashboard — usage metrics, per-user activity, model performance, memory growth over time — is a post-base-development addition once the platform has enough runtime data to make it useful.
-
-### User notifications (`notify_user`)
-A `notify_user(user_id, message, type)` function for user-facing async notifications — background task completion, deadline reminders, etc. Delivery via WebSocket push to the active client, with ntfy as a fallback for offline delivery. Distinct from `notify_admin`.
-
-### Secondary GPU parallel inference (`OLLAMA_NUM_PARALLEL`)
-If monitoring shows the secondary Ollama instance bottlenecking under simultaneous lightweight requests, enable `OLLAMA_NUM_PARALLEL=2` on that instance. Both small models (mistral:7b ~4GB, llama3.1:8b ~5GB) fit simultaneously in 12GB VRAM, leaving headroom for two concurrent generations. Only worth configuring if real usage data shows it is necessary.
-
-### TUI interrupt channel (`/btw`)
-A secondary input channel for power TUI users — allows a message to be injected mid-invocation without cancelling the current one. Opt-in, TUI-only. All other clients remain strictly one-message-at-a-time.
-
-### Dream mode (memory)
-A deeper memory consolidation pass that strengthens important memories, merges redundant entries, and surfaces patterns across a user's history. Heavier than the daily pruning pass — intended to run less frequently (weekly or on demand). Architecture TBD at design time.
-
-### `PATCH /tasks/{id}`
-A direct task edit REST endpoint. Not needed while all mutations go through the chat interface, but may become obvious once the web dashboard is built. Trivial to add at that point.
-
-### Voice mode in all clients
-Phase 10 adds STT/TTS infrastructure and voice mode to the TUI. Extending voice input/output to the desktop and iOS clients is left for after Phase 10 proves the architecture.
+See `jarvis-ideas.md` for the full backlog of future work and skills ideas.

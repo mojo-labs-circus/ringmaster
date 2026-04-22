@@ -136,3 +136,4 @@
 | 2026-04-21 (5) | Bug fixes — seed_db missing disabled field, .env inline comment parsing, test script --host arg |
 | 2026-04-21 (6) | WebSocket logs now show client hostname and IP (Tailscale MagicDNS reverse lookup) |
 | 2026-04-21 (7) | SSH configured — nomadbaker→pearlybaker key auth, password auth disabled on pearlybaker, SSH config added on nomadbaker |
+| 2026-04-22 (1) | Spec additions — "Augment, don't replace" core principle, Code of Ethics section, constitutional check node, truncate/retract frame types; jarvis-ideas.md created; spec Future Work section trimmed |

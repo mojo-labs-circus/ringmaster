@@ -36,8 +36,8 @@
 |---|---|---|---|
 | `qwen2.5:3b` | All roles (stand-in) | ✅ | ❌ |
 | `mistral:7b` | Router | ❌ | ✅ |
-| `qwen2.5:14b` | General stand-in | ❌ | ✅ |
-| `deepseek-coder-v2:16b` | Coding stand-in | ❌ | ✅ |
+| `qwen2.5:14b` | General + PLANNER stand-in | ❌ | ✅ |
+| `deepseek-coder-v2:16b` | Coding stand-in (CODE node only) | ❌ | ✅ |
 | `nomic-embed-text` | Embeddings | ❌ | ✅ |
 
 **Model names are never hardcoded — always read from `config.yaml` via `config.py`.**
@@ -91,6 +91,9 @@
 - [x] `tools/llm.py` — Ollama wrapper, streaming, fallback logic, `StreamResult` dataclass
 - [x] `tools/tokens.py` — token counting for history budget
 - [x] Full spec audit of DAG orchestration section (PLANNER + ORCHESTRATOR)
+- [ ] PLANNER node — `graph/nodes/planner.py` — calls REASONING_MODEL via `tools/llm.py`, receives `intent: list[str]`, produces `step_plan: list[Step]`, sets `error` on failure
+- [ ] ORCHESTRATOR node — `graph/nodes/orchestrator.py` — reactive loop, dispatches to agent nodes, writes `step_results`, clears `error`/`response` between steps, marks blocked steps, routes to RESPONDER when plan exhausted
+- [ ] `graph/graph.py` wiring — conditional edge skipping MEMORY_RETRIEVE when `needs_memory: false`, ORCHESTRATOR loop back to itself or forward to RESPONDER, universal error edge routing any node with `error` set directly to RESPONDER
 - [ ] TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
 - [ ] CONVERSATION node — general chat, all tiers
 - [ ] WEB node + `tools/search.py` (DuckDuckGo + Playwright)
@@ -100,8 +103,9 @@
 - [ ] MEMORY_RETRIEVE node
 - [ ] `memory/persist.py` background task
 - [ ] `GET /memory` — stub returning `[]` in Phase 3
-- [ ] ROUTER updated — `needs_memory` per intent, skills check
-- [ ] RESPONDER updated — checks `error`, formats for `client_type`, derives and sets `refresh`
+- [ ] ROUTER updated — `needs_memory` per intent, skills check, sets `tier_gate` list for any tier-gated intents
+- [ ] RESPONDER updated — checks `error`, formats for `client_type`, derives and sets `refresh`, formats tier-gate step results using hardcoded per-capability messages from `config.yaml`
+- [ ] CONSTITUTIONAL check — `api/constitutional.py` — concurrent async coroutine, watches token buffer, fires `truncate` frame on ethics violation, silent on happy path
 - [ ] TUI rewritten — connects to FastAPI WebSocket, opens on startup, reconnects on drop
 - [ ] `tui/auth.py` — `~/.jarvis/auth.json`, silent refresh, deletes on logout
 - [ ] TUI handles `confirm_request` (disable input), `done` (re-fetch `refresh` panels)

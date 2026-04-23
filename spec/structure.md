@@ -22,9 +22,10 @@
 │   ├── schemas.py           # Pydantic models for API request/response shapes
 │   ├── dependencies.py      # get_current_user, get_connected_client_ws, ConnectedClient, tier checks
 │   ├── connections.py       # Connection registry — maps user_id to active WebSockets, profile push
+│   ├── constitutional.py    # Constitutional check coroutine — launched by chat.py when token streaming begins. Watches token buffer, fires truncate frame on ethics violation. Not a LangGraph node.
 │   └── routes/
 │       ├── auth.py          # JWT auth — access + refresh tokens, token_version validation, invite + register flow. Gets auth repository via db/auth/factory.py.
-│       ├── chat.py          # WebSocket streaming endpoint — owns all frame sending, uses astream_events, drops messages during active invocation, fires memory/persist.py as background task after every exchange
+│       ├── chat.py          # WebSocket streaming endpoint — owns all frame sending, uses astream_events, drops messages during active invocation, fires memory/persist.py as background task after every exchange. Writes confirm_cancelled and history_edit events to improve log.
 │       ├── profile.py       # GET /profile, PATCH /profile
 │       ├── tasks.py         # GET /tasks, DELETE /tasks/{id}
 │       └── memory.py        # GET /memory (stub in Phase 3)
@@ -48,7 +49,7 @@
 │       ├── reviewer.py
 │       └── tester.py
 ├── tools/                   # Utility wrappers — stateless callables used by graph nodes. Add new capabilities here.
-│   ├── llm.py               # Ollama wrapper — streaming, timeout, fallback model logic. All nodes call this.
+│   ├── llm.py               # Ollama wrapper — streaming, timeout, fallback model logic. All nodes call this. Writes model_fallback event to improve log on fallback.
 │   ├── search.py            # DuckDuckGo search + Playwright scraping. Used by WEB node.
 │   ├── shell.py             # Subprocess runner with path sandboxing against ALLOWED_PATHS. Captures stdout and stderr separately. Used by SYSTEM node.
 │   ├── sandbox.py           # Sandboxed code execution subprocess. Used by CODE node.
@@ -70,7 +71,7 @@
 │   │   └── factory.py       # Reads JARVIS_DB_BACKEND env var, defaults to sqlite
 │   └── history/
 │       ├── models.py        # HistoryEntry dataclass — id, user_id, role, content, created_at
-│       ├── repository.py    # Abstract base class — load(user_id) -> list[dict], save(user_id, role, content)
+│       ├── repository.py    # Abstract base class — load(user_id) -> list[dict], save(entry: HistoryEntry) -> None
 │       ├── sqlite.py        # SQLiteHistoryRepository
 │       ├── postgres.py      # PostgresHistoryRepository (stub in Phase 3, full in Phase 6)
 │       └── factory.py       # Reads JARVIS_DB_BACKEND env var, defaults to sqlite
@@ -79,6 +80,9 @@
 │   ├── ingest.py            # Vault ingestion pipeline
 │   ├── retrieval.py         # Queries memory_{user_id} + memory_shared
 │   └── persist.py           # Background task — fired unconditionally after every exchange. Evaluates exchange, classifies personal vs shared, writes markdown to vault then ingests into ChromaDB if worth persisting.
+├── logs/                        # Not in git — machine-specific paths configured in config.yaml
+│   ├── jarvis.log               # Operational log — rotating, wiped on schedule by maintenance job
+│   └── improve.jsonl            # Improvement log — persistent, never wiped, JSON lines format. Fine-tuning data source.
 ├── notifications/
 │   └── notify.py            # ntfy wrapper — notify_admin(error_class, message), 10-min cooldown per (error_class, message)
 ├── maintenance/

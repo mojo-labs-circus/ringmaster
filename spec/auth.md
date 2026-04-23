@@ -23,7 +23,7 @@ The server's responsibility on logout is to mark the refresh token `revoked = tr
 
 WebSocket connections are validated at connection time. `token_version` is checked on every new message received over the connection — if the stored version has been incremented since the connection was opened (e.g. an admin forced a full deauth), the connection is closed with a clean `error` frame on the next message. The depth-1 message buffer is cleared on mismatch — any buffered message is dropped and not processed. The `error` frame indicates that re-authentication was required; the user re-authenticates via the normal silent refresh flow and re-sends manually. In practice this scenario is rare since the client disables input during active invocations, meaning the queue will typically have at most one message in it.
 
-The server maintains a connection registry — a dict mapping `user_id` to a list of `ConnectedClient` objects for that user. Each `ConnectedClient` holds the WebSocket object and the `client_type` extracted from the JWT at connection time. This is used to push `profile` frames on assistant name or tier changes, and will be used by the admin dashboard to show active sessions (e.g. "brother — tui × 2").
+The server maintains a connection registry — a dict mapping `user_id` to a list of `ConnectedClient` objects for that user. Each `ConnectedClient` holds the WebSocket object, the `client_type` extracted from the JWT at connection time, and a `last_activity: datetime` timestamp updated on every inbound message. This is used to push `profile` frames on assistant name or tier changes, and will be used by the admin dashboard to show active sessions (e.g. "brother — tui × 2"). The `last_activity` field is also used by the maintenance job to determine whether any user is genuinely active before running heavy tasks — an open connection with no recent activity (e.g. a laptop left on overnight) does not count as active.
 
 ### Token Contents (JWT payload)
 ```json
@@ -127,9 +127,18 @@ The `invites` table serves two purposes: onboarding new users and issuing passwo
 - `GET /profile` — Authenticated. Returns `username`, `tier`, `assistant_name`. Called by client on login and on receipt of a `profile` WebSocket push.
 - `PATCH /profile` — Authenticated. Updates `assistant_name`. Returns updated `ProfileResponse`. Server pushes a `profile` frame to all of the user's active connections after the update.
 
-### Daily Maintenance Job (ofelia)
+### Maintenance Job
 
-A daily ofelia job runs a general-purpose maintenance pass. It is intentionally designed to accumulate tasks over time — new maintenance needs get added here rather than spinning up separate scheduled jobs.
+`maintenance/cleanup.py` runs on a schedule and is intentionally designed to accumulate tasks over time — new maintenance needs get added here rather than spinning up separate scheduled jobs.
+
+**Two tiers of tasks:**
+
+- **Lightweight tasks** — token/invite purges, history trim, log threshold check. Fast, no inference, no GPU. Run on a short schedule throughout the day (e.g. every 3 hours).
+- **Heavy tasks** — dream mode, memory pruning, history summarisation. Require Ollama inference and can be long-running. Only run when no user has been active in the last 15 minutes (configurable via `maintenance.idle_threshold_minutes`). The 03:00–07:00 UTC window is the most likely quiet period given the timezone split across all six users, but the gate is activity-based not time-based — `cleanup.py` checks the connection registry (`last_activity` on each `ConnectedClient`) before starting any heavy task. If any connection shows recent activity, heavy tasks are deferred until the next check.
+
+**Scheduling by environment:**
+- **Dev (Phase 3):** basic cron entry on pearlybaker — `0 */3 * * *` for lightweight tasks, `0 3 * * *` for heavy tasks (3am UTC, most likely quiet). Both run `maintenance/cleanup.py` with a `--mode` flag (`light` or `heavy`).
+- **Production (Phase 6+):** ofelia container scheduler, wired into Docker Compose, same schedule.
 
 **Current tasks:**
 - Purge `refresh_tokens` rows where `expires_at < now` (regardless of `revoked` status)
@@ -169,19 +178,20 @@ Phase 3 does **not** rotate the refresh token — the same refresh token remains
 `config.yaml` at the project root is the single source of truth for all non-sensitive configuration. `config.py` is the only module that reads it — everything else imports constants from `config.py`. The files themselves are the authoritative reference — read them directly rather than duplicating their contents here.
 
 **Config sections and what they control:**
-- `models` — model names for each role (router, general, reasoning, embedding, fallback, multimodal). All model assignments go here — never hardcoded in the codebase. Values differ per machine; see the file for current dev values and comments showing full-system targets.
+- `models` — one key per node: `router`, `planner`, `conversation`, `tasks`, `memory`, `web`, `system`, `responder`, `code`, `constitutional`, `embedding`, `fallback`. All model assignments go here — never hardcoded in the codebase. Most nodes default to the same general model but each has its own key so any node can be independently swapped for a fine-tuned variant without touching code. Values differ per machine; see the file for current dev values and comments showing full-system targets.
 - `ollama` — base URL and timeout. `base_url` is the key that changes between dev and Docker deployment.
 - `server` — host and port. Host differs between dev (`127.0.0.1`) and production (`0.0.0.0`).
 - `auth` — token expiry (`access_token_expire_hours`, `refresh_token_expire_days`) and brute force config (`brute_force_limit`, `brute_force_window_minutes`).
 - `db` — `path` is dev-only (SQLite files written here). Ignored when `JARVIS_DB_BACKEND=postgres`. All repository factories read `JARVIS_DB_BACKEND` from the environment, defaulting to `sqlite`.
 - `history` — `context_window_budget` in tokens. Oldest exchanges dropped first when loading history.
-- `maintenance` — `retention_days` (history TTL) and `log_error_threshold` (ERROR count before admin notified).
-- `logging` — log file path. Dev default is `~/.jarvis/jarvis.log`.
+- `maintenance` — `retention_days` (history TTL), `log_error_threshold` (ERROR count before admin notified), `idle_threshold_minutes` (how long since last activity before a connection is considered idle — default 15).
+- `logging` — `path`: operational log, dev default `~/.jarvis/jarvis.log`. `improve_log_path`: persistent improvement/fine-tuning log, dev default `~/.jarvis/improve.jsonl` — never wiped by the maintenance job. Both paths are machine-specific and change at deployment time via `config.yaml` only.
 - `memory` — `vault_base` (differs per machine), `chunk_size`, `chunk_overlap`.
 - `skills` — `shared_approved_path` (differs per machine).
-- `system` — `allowed_paths` list for SYSTEM node sandboxing. Machine-specific.
+- `system` — `allowed_paths` list for SYSTEM node sandboxing. Machine-specific. Also contains `admin_contact` — a human-readable name/handle for the platform admin (e.g. `"Clarke"`), used in hardcoded user-facing messages such as tier-gate responses and error copy. Not sensitive, rarely changes.
 - `coding_team` — `max_review_iterations` caps the Reviewer → Coder loop.
 - `status_messages` — node-entry status frame text. Empty string = no frame sent. Only governs node-entry frames — mid-node `status_message` updates are dynamic and written by nodes directly.
+- `tier_gate_messages` — per-capability hardcoded messages delivered by RESPONDER when a Standard user's request is downgraded. One entry per gated capability: `system` and `code`. Each message covers what the capability is, what it does, why it is not granted to Standard tier, and how to request access (referencing `system.admin_contact`). Content written by the user — no inference call is made for these responses. Tunable without a code change.
 
 **`config.py` rules:**
 - `JARVIS_SECRET_KEY` is read at module import time — hard-fails immediately with `KeyError` if unset. No silent fallback.

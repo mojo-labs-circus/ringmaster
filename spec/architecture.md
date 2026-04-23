@@ -47,9 +47,9 @@
 10. ORCHESTRATOR marks the step complete, clears `error` and `response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
 11. RESPONDER formats final response into `formatted_response`, sets `refresh` on state
 12. Graph returns final state to FastAPI
-13. FastAPI sends `done` frame with `refresh` array from state
-14. FastAPI fires `memory/persist.py` as an asyncio background task after every exchange that completes with a `done` frame — not fired on `error` frame paths. Unconditional with respect to `needs_memory` (every successful exchange is evaluated), but never fired when the global exception handler handles the request instead of RESPONDER. Runs after `done` frame is sent, does not block the client.
-15. FastAPI writes new exchange to conversation history repository
+13. FastAPI writes new exchange to conversation history repository — synchronous, happens before `done` is sent. A single SQL INSERT, negligible latency. Writing before `done` guarantees conversation continuity — a crash after this point cannot lose the exchange from history.
+14. FastAPI sends `done` frame with `refresh` array from state
+15. FastAPI fires `memory/persist.py` as an asyncio background task — not fired on `error` frame paths. Unconditional with respect to `needs_memory` (every successful exchange is evaluated), but never fired when the global exception handler handles the request instead of RESPONDER. Runs after `done` frame is sent, does not block the client.
 
 ### Key Architecture Principles
 - **LangGraph is stateless between requests.** It receives all context it needs at invocation start and returns output. It does not own persistence.

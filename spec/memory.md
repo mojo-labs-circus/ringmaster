@@ -71,6 +71,8 @@ The vault is the source of truth — users can read, edit, or delete any vault f
 
 It uses `tools/llm.py` for inference calls, `tools/vault.py` for the vault write, and `memory/chroma.py` for the ChromaDB write.
 
+**Improvement log:** writes a `persist_decision` event for every exchange evaluated — both "persist" and "skip" verdicts. See `spec/improvement.md`.
+
 If a `tools/llm.py` inference call fails, `memory/persist.py` retries that call once. The retry applies independently to each inference step — the evaluator and the classifier are each retried once if they fail; a failure in one does not abort the other. If the evaluator fails after one retry, the task exits and the exchange is not persisted. If the classifier fails after one retry, `memory/persist.py` defaults to writing to `memory_{user_id}` (personal) rather than dropping the memory — it is safer to persist to the wrong scope than to lose the memory entirely. All failures at this stage are logged at `ERROR` level with no admin notification per individual failure. Repeated failures will accumulate in the error log and trigger the daily maintenance job threshold notification if the count is high enough.
 
 On ChromaDB unavailable: logs the failure and calls `notify_admin("chromadb_unavailable", ...)`.

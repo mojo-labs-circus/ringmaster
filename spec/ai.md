@@ -31,17 +31,22 @@ Model names are never hardcoded. All assignments are read from `config.yaml` via
 |---|---|---|---|
 | Intent routing / classification | `mistral:7b` | `mistral:7b` | `qwen2.5:3b` |
 | General conversation | `llama3.1:8b` | `qwen2.5:14b` | `qwen2.5:3b` |
+| Planning / dependency inference (PLANNER node) | TBD — 32B reasoning model | `qwen2.5:14b` | `qwen2.5:3b` |
 | Reasoning / coding (CODE node) | `deepseek-r1:14b` | `deepseek-coder-v2:16b` | `qwen2.5:3b` |
+| Constitutional check (ethics monitor) | `mistral:7b` | `mistral:7b` | `qwen2.5:3b` |
 | Embeddings (memory ingest + retrieval) | `nomic-embed-text` | `nomic-embed-text` | `nomic-embed-text` |
 | Multimodal / image understanding | `llava:13b` | — | — |
 | Fallback (primary model failure) | `mistral:7b` | `mistral:7b` | `qwen2.5:3b` |
 
 **Rules:**
-- ROUTER always uses the router model — never the general model
-- CODE node always uses the reasoning model — never the general model
-- Embeddings always use `nomic-embed-text` on all machines — no stand-in
+- Every node has its own model key in `config.yaml` — `router`, `planner`, `conversation`, `tasks`, `memory`, `web`, `system`, `responder`, `code`, `constitutional`, `embedding`, `fallback`. Most nodes default to the same general model but each is independently overridable — swap one key to point a node at a fine-tuned variant without touching code.
+- ROUTER always uses `models.router` — never the general model
+- PLANNER always uses `models.planner` — never the general model
+- CODE always uses `models.code` — never the general model
+- CONSTITUTIONAL always uses `models.constitutional`
+- Embeddings always use `models.embedding` (`nomic-embed-text`) on all machines — no stand-in
 - On nomadbaker, `qwen2.5:3b` fills all roles — expect degraded output quality, this is normal for a dev stand-in
-- Model assignments upgrade via `config.yaml` only — no code changes needed as hardware improves
+- Model assignments upgrade via `config.yaml` only — no code changes needed as hardware improves or fine-tuned variants are introduced
 
 ---
 
@@ -98,14 +103,15 @@ class JarvisState(TypedDict):
                                     # directly to Ollama — no manipulation required.
     current_input: str              # the message the user just sent — populated by FastAPI at invocation
 
-    # Project context — session-level only, never persisted
-    active_project: str | None      # set by client at session start, None if no project selected.
-                                    # Controls project-scoped vault reads and ChromaDB filtering in
-                                    # MEMORY_RETRIEVE and CODE. Never touches the database.
-                                    # Unrecognised values are passed through — FastAPI does not validate
-                                    # whether the project folder exists. MEMORY_RETRIEVE handles this
-                                    # case and emits a tier-aware status message if no chunks are found
-                                    # for the named project. Zero-initialised to None by FastAPI.
+    # Project context — per-message, never persisted
+    active_project: str | None      # read by FastAPI from each message envelope — optional field, None if absent.
+                                    # Client owns this state: user selects a project (web: button, TUI: /project <name>),
+                                    # client stores it and includes it in every subsequent message until changed or cleared.
+                                    # Controls project-scoped vault reads and ChromaDB filtering in MEMORY_RETRIEVE and CODE.
+                                    # Never touches the database. Unrecognised values are passed through — FastAPI does not
+                                    # validate whether the project folder exists. MEMORY_RETRIEVE handles this case and emits
+                                    # a tier-aware status message if no chunks are found for the named project.
+                                    # Zero-initialised to None by FastAPI when absent from the message envelope.
 
     # Routing
     intent: list[str]               # set by ROUTER — one or more intents. Zero-initialised to [] by FastAPI.
@@ -125,6 +131,12 @@ class JarvisState(TypedDict):
     # Error handling
     error: str | None               # set by any node on expected failure, checked by RESPONDER. Zero-initialised to None by FastAPI.
 
+    # Tier gate
+    tier_gate: list[str]            # set by ROUTER — list of intent names that were tier-gated for this user (e.g. ["code"]).
+                                    # ROUTER does not remove these from `intent` — PLANNER plans all steps including blocked ones.
+                                    # ORCHESTRATOR pre-blocks any step whose intent appears here before dispatching.
+                                    # Zero-initialised to [] by FastAPI.
+
     # Interrupt / confirm
     interrupt_payload: dict | None  # written by node before calling interrupt() — FastAPI builds confirm_request frame from this. Zero-initialised to None by FastAPI.
 
@@ -143,7 +155,7 @@ class JarvisState(TypedDict):
 - Model: `mistral:7b`
 - Classifies every input into one or more intents: `memory | tasks | code | web | system | conversation` — writes result as `list[str]` to `intent` on state
 - Classification only — ROUTER does not produce a step plan. Step decomposition and dependency inference is PLANNER's responsibility.
-- Checks user tier — Standard users cannot be classified into `code` or `system`. If a Standard user's message maps to a tier-gated intent, ROUTER downgrades it to `conversation` and sets a tier-gate flag on state so RESPONDER can explain the limitation.
+- Checks user tier — Standard users cannot be classified into `code` or `system`. If a Standard user's message includes a tier-gated intent, ROUTER leaves `intent` unchanged and appends the gated intent name(s) to `tier_gate` on state. `intent` is never modified — PLANNER plans all steps including the ones that will be blocked. ORCHESTRATOR handles the blocking at dispatch time.
 - Checks personal skills collection (`skills_{user_id}`) then shared skills collection (`skills_shared`) for relevant procedural context — graceful no-op if either collection does not exist yet. Personal skills path derived at runtime: `{memory.vault_base}/{user_id}/02-skills/approved/`. Before reading from either skills path, ROUTER checks whether the directory exists on disk — if it doesn't, that source is treated as empty with no error, matching the behaviour of a missing ChromaDB collection. The skills check is intent-scoped — ROUTER fetches skills relevant to the classified intent(s), not a general sweep. This means `skill_context` on state is already targeted at the destination node(s) before they run.
 - Sets `needs_memory: bool` on state — controls whether `MEMORY_RETRIEVE` is invoked. If any classified intent requires memory, `needs_memory` is set to `true`. Does not control whether `memory/persist.py` runs — that fires unconditionally after every exchange.
 - MEMORY is flagged as needed for: `memory`, `conversation`, `code` intents
@@ -151,6 +163,7 @@ class JarvisState(TypedDict):
 - MEMORY is skipped for `tasks` intent when the request is a pure data mutation or retrieval with no reasoning required — e.g. "add a task", "mark that done", "list my tasks"
 - MEMORY is skipped for: `web`, `system` intents
 - `memory` intent always sets `needs_memory: true` — the MEMORY node operates on `retrieved_context` already populated by MEMORY_RETRIEVE rather than querying ChromaDB itself
+- **Improvement log:** writes a `router_retry` event on retry, `tier_gate_hit` event when a Standard user's intent is gated. See `spec/improvement.md`.
 - **ROUTER failure handling:** if the inference call fails or times out, ROUTER retries once via `tools/llm.py`. If the retry also fails, it raises to the global exception handler — clean error frame to client, admin notified via ntfy. `tools/llm.py`'s cross-model fallback logic does not apply to ROUTER: the router model (`mistral:7b`) and the fallback model are the same, so there is nothing to fall back to. A successful retry is logged at `WARNING` level.
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["router"]` is set — ROUTER itself does not send frames
 
@@ -176,13 +189,15 @@ class JarvisState(TypedDict):
 - Executes the `StepPlan` from state reactively — one step at a time, result of each step informs the next
 - Each iteration:
   1. Find all steps whose `depends_on` are fully satisfied (all named steps completed successfully)
-  2. Execute the next ready step by dispatching to the appropriate agent node
-  3. After the agent node completes, save `response` into `step_results` before looping
-  4. Mark the step `success` or `failure` based on whether `error` was set on state
-  5. Clear `error` and `response` on state before the next iteration
-- A failed step marks all steps with `depends_on` pointing to it as `blocked` — they are skipped
-- Independent steps (no `depends_on` pointing to a failed step) always run regardless of other failures
+  2. **Tier-gate check:** if the step's `intent` appears in `state.tier_gate`, immediately write a `StepResult` with `status: "blocked"`, `blocked_by: None`, `reason: "tier_gate:{intent}"` — do not dispatch to the agent node
+  3. Execute the next ready step by dispatching to the appropriate agent node
+  4. After the agent node completes, save `response` into `step_results` before looping
+  5. Mark the step `success` or `failure` based on whether `error` was set on state
+  6. Clear `error` and `response` on state before the next iteration
+- A failed or tier-gated step marks all steps with `depends_on` pointing to it as `blocked` — they are skipped
+- Independent steps (no `depends_on` pointing to a failed or tier-gated step) always run regardless of other step outcomes
 - Loops until no ready or pending steps remain, then routes to RESPONDER
+- **Improvement log:** writes a `planner_divergence` event when fewer steps executed than planned. See `spec/improvement.md`.
 - Writes a tier-aware `status_message` before dispatching each step:
   - Admin: `"Step 2/3: Dispatching to TASKS — add_shampoo (no dependencies)"`
   - Power: `"Step 2 of 3: Adding your task..."`
@@ -211,6 +226,7 @@ ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORC
 - Operates on `retrieved_context` already populated by MEMORY_RETRIEVE — does not query ChromaDB directly for retrieval
 - Includes `skill_context` in Ollama prompt if non-empty
 - Delete/forget operations use the interrupt/confirm pattern — node identifies what will be removed, writes it to `interrupt_payload`, user confirms before the ChromaDB delete executes. On cancel, writes a hardcoded cancellation message to `response`, no further action taken.
+- **Improvement log:** writes a `memory_forget` event when the user confirms a delete. See `spec/improvement.md`.
 - On ChromaDB unavailable at any point — including after the user has confirmed a delete — sets `error` on state, calls `notify_admin("chromadb_unavailable", ...)`. The user's confirmation is consumed; they would need to request the delete again once the service is restored.
 - No node-entry status frame by default (`STATUS_MESSAGES["memory"]` is empty)
 
@@ -313,20 +329,23 @@ loop (configurable max) or surface to user for a decision
 - The client will never receive `token` frames before a `confirm_request` frame from SYSTEM — all token streaming happens after confirmation, or not at all on cancel. `status_message` frames may arrive before the `confirm_request` (the "Composing command..." phase) and after it (the "Executing now..." phase).
 
 ### CONSTITUTIONAL
-- Runs as a concurrent async task launched by FastAPI at the moment token streaming begins — not a LangGraph node in the graph, but a parallel coroutine
-- Consumes the token buffer as it fills, reading ahead of what has been sent to the client
-- When a violation is detected mid-stream: FastAPI sends a `truncate` frame with `token_count` set to the number of clean tokens already sent, halts the current stream, generates a corrected continuation, and streams it as normal `token` frames from that point
-- When no violation is detected: the coroutine completes silently — no frame sent, no latency added
-- Uses the lightweight/fast model from `config.yaml` — watching a stream for ethics violations is a simple binary task, not a reasoning task
-- The ethics principles are hardcoded in this node — not loaded from config or any user-editable source. Changing them requires a code change, by design
-- `retract` (post-stream async correction) is a separate mechanism owned by individual nodes — CONSTITUTIONAL only ever fires `truncate`
-- Admin-tier status messages surface the check result (`"Constitutional check: passed"` or `"Constitutional check: violation at token 12 — truncating"`). Power and Standard tiers see nothing — invisible on the happy path, `truncate` handles the violation case without surfacing internals
+- Runs as a concurrent async task launched by `chat.py` at the moment token streaming begins — not a LangGraph node in the graph, but a parallel coroutine
+- Monitor only — CONSTITUTIONAL never touches the WebSocket or calls Ollama directly. It detects violations and signals `chat.py`, which owns all correction streaming
+- Launched with: a reference to the token buffer, the original model being used, and the `message_id` of the current exchange
+- Consumes the token buffer as it fills, evaluating the response against the hardcoded ethics principles using the `constitutional` model from `config.yaml` — a simple binary classification task, not reasoning
+- **Violation detected mid-stream:** CONSTITUTIONAL signals `chat.py` with `{token_count, violation, principle}` — the number of clean tokens already sent, what the problematic content was, and which ethics principle it broke. `chat.py` halts the Ollama stream, sends a `truncate` frame to the client, then makes a fresh Ollama call to the original model with the clean tokens so far plus a correction instruction derived from the violation signal. Streams the corrected continuation as normal `token` frames from that point.
+- **Violation detected post-stream** (violation in the tail of the response, `done` already sent): CONSTITUTIONAL signals `chat.py` with the same `{token_count, violation, principle}` shape. `chat.py` generates a full corrected response via the original model and sends a `retract` frame. `chat.py` awaits the CONSTITUTIONAL task after sending `done` — the WebSocket stays open for this window before accepting the next message.
+- **No violation detected:** the coroutine completes silently — no frame sent, no latency added on the happy path
+- **Improvement log:** writes a `constitutional_violation` event on every violation (truncate or retract). Clean passes are not logged — no noise. See `spec/improvement.md`.
+- The ethics principles are hardcoded in `api/constitutional.py` — not loaded from config or any user-editable source. Changing them requires a code change, by design
+- Admin-tier status messages surface the check result (`"Constitutional check: passed"` or `"Constitutional check: violation at token 12 — truncating"`). Power and Standard tiers see nothing — invisible on the happy path, correction is seamless
 
 ### RESPONDER
 - Reads `client_type` from `JarvisState` — formats into `formatted_response` accordingly
   - `tui`: plain text with Textual markup
   - `web` / `mobile`: markdown or structured JSON for frontend rendering
 - Checks `error` field on state first — if set, writes a clean error message to `formatted_response` instead of a normal response
+- **Tier-gate steps:** in multi-step results, any `StepResult` with `reason` matching `"tier_gate:{intent}"` is formatted using the hardcoded per-capability message for that intent — no inference call. Each message covers: what the capability is, what it does, why it is not granted to Standard tier, and how to request access (referencing `system.admin_contact` from `config.yaml`). Message content is written by the user and stored in `config.yaml` under `tier_gate_messages` — one entry per gated capability (`system`, `code`). Tunable without a code change. The rest of the step results are formatted normally — successful steps report their output, other blocked steps explain what they were waiting on.
 - **Single-step:** formats `response` directly into `formatted_response` as normal
 - **Multi-step:** when `step_results` is non-empty, summarises all steps into a single coherent `formatted_response` — reports what succeeded, what failed, and what was blocked and why. Tier-aware: Admin gets full detail per step, Standard gets a plain-language summary of the overall outcome.
 - Sets `refresh` list on state derived from the intents that executed — RESPONDER is the sole owner of the `refresh` field, no other node writes to it. For multi-step, unions the refresh targets from all successful steps.

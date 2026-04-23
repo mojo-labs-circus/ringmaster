@@ -2,7 +2,7 @@
 > **Session start:** Read `CLAUDE.md` (this file) and `jarvis-dev-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
+PLANNER node + ORCHESTRATOR node + graph.py wiring
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the phase checklist.

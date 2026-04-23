@@ -62,6 +62,15 @@ Summarise what happened in a conversation session — decisions made, code writt
 
 ## 🔮 Future Work
 
+### Last-mile fine-tuning
+Fine-tune an existing open source model (e.g. a 7B–34B Llama or Qwen variant) on personal data — writing samples, coding patterns, conversation history, notes — to produce a model that genuinely behaves like a personal assistant rather than a generic one shaped by prompting. The home server A6000 (48GB VRAM) is capable of LoRA/QLoRA fine-tuning at this scale. Tools like Unsloth and LLaMA-Factory have made this accessible to individual developers.
+
+The result: a base model that already knows your style, your domain, your preferences, and how you think — before any system prompt is applied. Layered on top of the existing JARVIS memory and skills system, this is the endgame for a truly personal AI. No platform code changes needed — swap the model name in `config.yaml` and the rest of the system works as-is.
+
+Once fine-tuning is working well, the constitutional check shifts from active enforcement to audit layer — the principles are baked into the weights, so CONSTITUTIONAL rarely fires. Its firing history also becomes a useful training signal for the next fine-tuning pass.
+
+Revisit once the home server is live and the platform has accumulated enough personal data to make a fine-tuning dataset meaningful.
+
 Product ideas and infrastructure improvements with no assigned phase. Not tied to any specific implementation task — revisit once the core platform is stable.
 
 ### Tailscale ACL groups

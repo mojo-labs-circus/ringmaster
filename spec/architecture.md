@@ -44,7 +44,7 @@
 7. `MEMORY_RETRIEVE` runs if `needs_memory: true` — retrieves relevant context from ChromaDB, writes to `retrieved_context`
 8. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
 9. Agent node executes — calls Ollama; FastAPI forwards tokens to client as `token` frames as they arrive
-10. ORCHESTRATOR marks the step complete, clears `error` and `response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
+10. ORCHESTRATOR marks the step complete, clears `error` and `step_response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
 11. RESPONDER assembles final response into `assembled_response` (clean markdown), sets `refresh` on state
 12. Graph returns final state to FastAPI
 13. FastAPI writes new exchange to conversation history repository — synchronous, happens before `done` is sent. A single SQL INSERT, negligible latency. Writing before `done` guarantees conversation continuity — a crash after this point cannot lose the exchange from history.

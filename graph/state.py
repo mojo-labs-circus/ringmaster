@@ -54,7 +54,7 @@ class JarvisState(TypedDict):
     skill_context: str      # populated by ROUTER skills check
 
     # Output — zero-initialised to "" by FastAPI
-    response: str             # populated by active agent node — ephemeral per-step output.
+    step_response: str        # populated by active agent node — ephemeral per-step scratch field.
                               # ORCHESTRATOR reads this after each step, saves to step_results,
                               # then clears it before the next step. Empty by the time RESPONDER runs.
     assembled_response: str   # populated by RESPONDER — the final coherent response FastAPI sends.

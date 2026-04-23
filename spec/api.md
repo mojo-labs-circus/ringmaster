@@ -201,7 +201,7 @@ Any node can pause graph execution and request confirmation from the user before
 5. User responds — client sends a `confirm` or `cancel` frame back to FastAPI
 6. Client re-enables the message input field
 7. FastAPI calls `graph.resume()` with the user's decision
-8. If confirmed, the node proceeds with execution. If cancelled, the node writes a hardcoded cancellation message to `response` — no Ollama call is made for the cancellation. The message includes the cancelled command or action from `interrupt_payload` and hands control back to the user (e.g. "Cancelled: `rm -rf /tmp/jarvis-scratch`. What would you like to do instead?"). The graph then continues to RESPONDER normally.
+8. If confirmed, the node proceeds with execution. If cancelled, the node writes a hardcoded cancellation message to `step_response` — no Ollama call is made for the cancellation. The message includes the cancelled command or action from `interrupt_payload` and hands control back to the user (e.g. "Cancelled: `rm -rf /tmp/jarvis-scratch`. What would you like to do instead?"). The graph then continues to RESPONDER normally.
 
 The same hardcoded cancellation rule applies to Coding Team nodes — on cancel, the node writes a hardcoded message describing what was cancelled, derived from `interrupt_payload`, with no inference call.
 

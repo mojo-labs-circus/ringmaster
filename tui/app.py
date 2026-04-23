@@ -73,17 +73,17 @@ class JarvisApp(App):
                 "messages": self.messages,
                 "mode": "",
                 "context": "",
-                "response": ""
+                "step_response": ""
             })
         )
 
 
-        response_text = result["response"]
+        response_text = result["step_response"]
         self.messages.append(AIMessage(content=response_text))
 
         # Remove the thinking message and display the response with the model used to search
         model_name = CODING_MODEL if result.get("mode") == "coding" else GENERAL_MODEL
-        log.write(f"[bold green]JARVIS[/bold green] [dim](via {model_name}):[/dim] {result['response']}\n")
+        log.write(f"[bold green]JARVIS[/bold green] [dim](via {model_name}):[/dim] {result['step_response']}\n")
 
 if __name__ == "__main__":
     app = JarvisApp()

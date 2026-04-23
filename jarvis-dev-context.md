@@ -92,7 +92,7 @@
 - [x] `tools/tokens.py` — token counting for history budget
 - [x] Full spec audit of DAG orchestration section (PLANNER + ORCHESTRATOR)
 - [ ] PLANNER node — `graph/nodes/planner.py` — calls REASONING_MODEL via `tools/llm.py`, receives `intent: list[str]`, produces `step_plan: list[Step]`, sets `error` on failure
-- [ ] ORCHESTRATOR node — `graph/nodes/orchestrator.py` — reactive loop, dispatches to agent nodes, writes `step_results`, clears `error`/`response` between steps, marks blocked steps, routes to RESPONDER when plan exhausted
+- [ ] ORCHESTRATOR node — `graph/nodes/orchestrator.py` — reactive loop, dispatches to agent nodes, writes `step_results`, clears `error`/`step_response` between steps, marks blocked steps, routes to RESPONDER when plan exhausted
 - [ ] `graph/graph.py` wiring — conditional edge skipping MEMORY_RETRIEVE when `needs_memory: false`, ORCHESTRATOR loop back to itself or forward to RESPONDER, universal error edge routing any node with `error` set directly to RESPONDER
 - [ ] TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
 - [ ] CONVERSATION node — general chat, all tiers

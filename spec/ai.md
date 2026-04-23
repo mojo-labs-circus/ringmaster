@@ -122,8 +122,8 @@ class JarvisState(TypedDict):
     skill_context: str              # populated by ROUTER skills check — zero-initialised to "" by FastAPI
 
     # Output
-    response: str                   # populated by active agent node — ephemeral per-step output. ORCHESTRATOR reads this
-                                    # after each step, saves to step_results, then clears it before the next step.
+    step_response: str              # populated by active agent node — ephemeral per-step scratch field. ORCHESTRATOR reads
+                                    # this after each step, saves to step_results, then clears it before the next step.
                                     # Empty by the time RESPONDER runs. Zero-initialised to "" by FastAPI.
     assembled_response: str         # populated by RESPONDER — the final coherent response FastAPI reads to send the done
                                     # frame and to write to conversation history. Always clean markdown — client owns
@@ -195,9 +195,9 @@ class JarvisState(TypedDict):
   1. Find all steps whose `depends_on` are fully satisfied (all named steps completed successfully)
   2. **Tier-gate check:** if the step's `intent` appears in `state.tier_gate`, immediately write a `StepResult` with `status: "blocked"`, `blocked_by: None`, `reason: "tier_gate:{intent}"` — do not dispatch to the agent node
   3. Execute the next ready step by dispatching to the appropriate agent node
-  4. After the agent node completes, save `response` into `step_results` before looping
+  4. After the agent node completes, save `step_response` into `step_results` before looping
   5. Mark the step `success` or `failure` based on whether `error` was set on state
-  6. Clear `error` and `response` on state before the next iteration
+  6. Clear `error` and `step_response` on state before the next iteration
 - A failed or tier-gated step marks all steps with `depends_on` pointing to it as `blocked` — they are skipped
 - Independent steps (no `depends_on` pointing to a failed or tier-gated step) always run regardless of other step outcomes
 - Loops until no ready or pending steps remain, then routes to RESPONDER
@@ -219,7 +219,7 @@ ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORC
 ### CONVERSATION
 - The default node for general chat — the most-used node for Standard tier users
 - Model: `llama3.1:8b`
-- Calls Ollama with `messages`, `retrieved_context`, and `skill_context` (if non-empty) — writes result to `response`
+- Calls Ollama with `messages`, `retrieved_context`, and `skill_context` (if non-empty) — writes result to `step_response`
 - Available to all tiers
 - No node-entry status frame by default (`STATUS_MESSAGES["conversation"]` is empty) — tokens stream directly
 
@@ -229,7 +229,7 @@ ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORC
 - All tiers can query, delete, and forget their own memory — it is the user's data
 - Operates on `retrieved_context` already populated by MEMORY_RETRIEVE — does not query ChromaDB directly for retrieval
 - Includes `skill_context` in Ollama prompt if non-empty
-- Delete/forget operations use the interrupt/confirm pattern — node identifies what will be removed, writes it to `interrupt_payload`, user confirms before the ChromaDB delete executes. On cancel, writes a hardcoded cancellation message to `response`, no further action taken.
+- Delete/forget operations use the interrupt/confirm pattern — node identifies what will be removed, writes it to `interrupt_payload`, user confirms before the ChromaDB delete executes. On cancel, writes a hardcoded cancellation message to `step_response`, no further action taken.
 - **Improvement log:** writes a `memory_forget` event when the user confirms a delete. See `spec/improvement.md`.
 - On ChromaDB unavailable at any point — including after the user has confirmed a delete — sets `error` on state, calls `notify_admin("chromadb_unavailable", ...)`. The user's confirmation is consumed; they would need to request the delete again once the service is restored.
 - No node-entry status frame by default (`STATUS_MESSAGES["memory"]` is empty)
@@ -244,8 +244,8 @@ ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORC
 - Includes `skill_context` in Ollama prompt if non-empty
 - Dev backend: SQLite (same interface, selected via `JARVIS_DB_BACKEND` env var)
 - No node-entry status frame by default (`STATUS_MESSAGES["tasks"]` is empty) — writes a specific `status_message` immediately before each operation (before insert, before query, before update, before delete) so the message is accurate for both reads and mutations. The message content is tier-aware: Admin sees technical detail (e.g. "Inserting task into `tasks` via SQLiteTaskRepository..."), Power sees operational detail (e.g. "Adding your task..."), Standard sees plain language (e.g. "Adding task...")
-- Delete operations use the interrupt/confirm pattern — node identifies the task, writes it to `interrupt_payload`, user confirms before the delete executes. On cancel, writes a hardcoded cancellation message to `response`, no further action taken.
-- Any operation on a task that no longer exists (update, complete, delete) is treated as a graceful no-op — the node writes a tier-appropriate message to `response` (e.g. "That task has already been deleted") rather than raising an error. This handles the race condition where a REST `DELETE /tasks/{id}` call completes while a chat-initiated delete is sitting at the interrupt/confirm gate.
+- Delete operations use the interrupt/confirm pattern — node identifies the task, writes it to `interrupt_payload`, user confirms before the delete executes. On cancel, writes a hardcoded cancellation message to `step_response`, no further action taken.
+- Any operation on a task that no longer exists (update, complete, delete) is treated as a graceful no-op — the node writes a tier-appropriate message to `step_response` (e.g. "That task has already been deleted") rather than raising an error. This handles the race condition where a REST `DELETE /tasks/{id}` call completes while a chat-initiated delete is sitting at the interrupt/confirm gate.
 
 ### `Task` Dataclass
 
@@ -328,8 +328,8 @@ loop (configurable max) or surface to user for a decision
 - Admin and Power tier only
 - Includes `skill_context` in Ollama prompt if non-empty
 - No node-entry status frame by default (`STATUS_MESSAGES["system"]` is empty) — writes two `status_message` updates per command: one before calling `interrupt()` while composing the shell command ("Composing command..."), one immediately after the user confirms and before the command executes ("Executing..."). Content for both is tier-aware — see execution sequence below.
-- **Execution sequence:** (1) SYSTEM writes a `status_message` — "Composing command..." (tier-aware: Admin: `"Translating request into shell command via tools/llm.py..."`, Power: `"Working out the command..."`, Standard: n/a) — then calls Ollama to translate the natural language request into a concrete shell command. This inference is internal and not streamed as `token` frames. (2) SYSTEM writes the command to `interrupt_payload` and calls `interrupt()`. (3) FastAPI sends `confirm_request` frame — client disables input and renders a confirmation prompt (e.g. a popup with confirm/cancel). Pre-interrupt phase is otherwise silent from a `status_message` perspective — the `confirm_request` frame handles all pre-execution communication. (4) If confirmed, SYSTEM writes a `status_message` immediately before execution — "Executing now..." (tier-aware: Admin: `"Executing: '{command}' via tools/shell.py..."`, Power: `"Running command: '{command}'..."`, Standard: n/a) — then the command executes via `tools/shell.py`. If cancelled, SYSTEM writes a hardcoded cancellation message to `response` — no further Ollama call.
-- **After confirmed execution:** `tools/shell.py` captures stdout and stderr separately. SYSTEM passes both to Ollama to format and summarise into `response` — the response includes context about what came from each channel, with tier-appropriate detail (Admin sees which output came from stdout vs stderr; Standard gets a plain language summary of what happened). Four distinct outcomes: (a) stdout and/or stderr present → Ollama formats both into `response`; (b) both empty, exit code 0 → hardcoded "Done. `<command>` completed successfully.", no Ollama call; (c) both empty, non-zero exit code → hardcoded "Command failed with exit code N and produced no output."; (d) `tools/shell.py` itself cannot spawn the subprocess → sets `error` on state, which triggers the universal error routing rule. This last case is the only one that sets `error` — command-level failures (including stderr output) always go through `response`.
+- **Execution sequence:** (1) SYSTEM writes a `status_message` — "Composing command..." (tier-aware: Admin: `"Translating request into shell command via tools/llm.py..."`, Power: `"Working out the command..."`, Standard: n/a) — then calls Ollama to translate the natural language request into a concrete shell command. This inference is internal and not streamed as `token` frames. (2) SYSTEM writes the command to `interrupt_payload` and calls `interrupt()`. (3) FastAPI sends `confirm_request` frame — client disables input and renders a confirmation prompt (e.g. a popup with confirm/cancel). Pre-interrupt phase is otherwise silent from a `status_message` perspective — the `confirm_request` frame handles all pre-execution communication. (4) If confirmed, SYSTEM writes a `status_message` immediately before execution — "Executing now..." (tier-aware: Admin: `"Executing: '{command}' via tools/shell.py..."`, Power: `"Running command: '{command}'..."`, Standard: n/a) — then the command executes via `tools/shell.py`. If cancelled, SYSTEM writes a hardcoded cancellation message to `step_response` — no further Ollama call.
+- **After confirmed execution:** `tools/shell.py` captures stdout and stderr separately. SYSTEM passes both to Ollama to format and summarise into `step_response` — the response includes context about what came from each channel, with tier-appropriate detail (Admin sees which output came from stdout vs stderr; Standard gets a plain language summary of what happened). Four distinct outcomes: (a) stdout and/or stderr present → Ollama formats both into `step_response`; (b) both empty, exit code 0 → hardcoded "Done. `<command>` completed successfully.", no Ollama call; (c) both empty, non-zero exit code → hardcoded "Command failed with exit code N and produced no output."; (d) `tools/shell.py` itself cannot spawn the subprocess → sets `error` on state, which triggers the universal error routing rule. This last case is the only one that sets `error` — command-level failures (including stderr output) always go through `step_response`.
 - The client will never receive `token` frames before a `confirm_request` frame from SYSTEM — all token streaming happens after confirmation, or not at all on cancel. `status_message` frames may arrive before the `confirm_request` (the "Composing command..." phase) and after it (the "Executing now..." phase).
 
 ### CONSTITUTIONAL

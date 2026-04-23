@@ -98,7 +98,7 @@ async def chat_ws(
                     "needs_memory": False,
                     "retrieved_context": "",
                     "skill_context": "",
-                    "response": "",
+                    "step_response": "",
                     "assembled_response": "",
                     "status_message": None,
                     "error": None,

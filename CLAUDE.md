@@ -1,5 +1,5 @@
 # JARVIS — Claude Code Context
-> **Session start:** Read `CLAUDE.md` (this file), `jarvis-dev-context.md`, and `jarvis-spec.md` before doing anything else. These three files together are the complete project context.
+> **Session start:** Read `CLAUDE.md` (this file) and `jarvis-dev-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
 TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
@@ -58,91 +58,13 @@ Client sends:
 - `JARVIS_DB_BACKEND` — `sqlite` in dev, `postgres` in production
 - `JARVIS_DB_URL` — only needed when backend is postgres
 
-## Project Structure
-
-    ~/projects/jarvis/
-    ├── config.yaml
-    ├── config.py
-    ├── logging_config.py
-    ├── main.py
-    ├── jarvis-spec.md
-    ├── .env
-    ├── .env.example
-    ├── CLAUDE.md
-    ├── api/
-    │   ├── server.py
-    │   ├── schemas.py
-    │   ├── dependencies.py
-    │   ├── connections.py
-    │   └── routes/
-    │       ├── auth.py
-    │       ├── chat.py
-    │       ├── profile.py
-    │       ├── tasks.py
-    │       └── memory.py
-    ├── db/
-    │   ├── schema.py
-    │   ├── auth/
-    │   │   ├── models.py
-    │   │   ├── repository.py
-    │   │   ├── sqlite.py
-    │   │   ├── postgres.py
-    │   │   └── factory.py
-    │   ├── tasks/
-    │   │   ├── models.py
-    │   │   ├── repository.py
-    │   │   ├── sqlite.py
-    │   │   ├── postgres.py
-    │   │   └── factory.py
-    │   └── history/
-    │       ├── models.py
-    │       ├── repository.py
-    │       ├── sqlite.py
-    │       ├── postgres.py
-    │       └── factory.py
-    ├── graph/
-    │   ├── graph.py
-    │   ├── state.py
-    │   └── nodes/
-    │       ├── router.py
-    │       ├── memory_retrieve.py
-    │       ├── conversation.py
-    │       ├── memory.py
-    │       ├── tasks.py
-    │       ├── code.py
-    │       ├── web.py
-    │       ├── system.py
-    │       └── responder.py
-    ├── tools/
-    │   ├── llm.py
-    │   ├── search.py
-    │   ├── shell.py
-    │   ├── sandbox.py
-    │   ├── vault.py
-    │   └── tokens.py
-    ├── memory/
-    │   ├── chroma.py
-    │   ├── ingest.py
-    │   ├── retrieval.py
-    │   └── persist.py
-    ├── notifications/
-    │   └── notify.py
-    ├── maintenance/
-    │   └── cleanup.py
-    ├── scripts/
-    │   └── seed_db.py
-    ├── tui/
-    │   ├── app.py
-    │   ├── auth.py
-    │   └── panels/
-    └── tests/
-        ├── conftest.py
-        ├── unit/
-        └── integration/
+## Dev Environment
+- **Active machine:** pearlybaker — full GPU, vault, ChromaDB, Ollama all live
+- **Dev workflow:** SSH from nomadbaker into pearlybaker (`ssh pearlybaker`). All code runs on pearlybaker.
+- **JARVIS server:** systemd user unit on pearlybaker — `systemctl --user start/stop/status jarvis`
+- **All URLs use `localhost`** — no Docker service names yet
 
 ## What Does Not Exist Yet
-- ChromaDB — pearlybaker only
-- Vault — pearlybaker only
-- ntfy — not running on this machine yet
+- ntfy — not running yet
 - Docker / containerisation — Phase 6
 - Gitea — once home server is built

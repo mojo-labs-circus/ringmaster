@@ -137,3 +137,4 @@
 | 2026-04-21 (6) | WebSocket logs now show client hostname and IP (Tailscale MagicDNS reverse lookup) |
 | 2026-04-21 (7) | SSH configured — nomadbaker→pearlybaker key auth, password auth disabled on pearlybaker, SSH config added on nomadbaker |
 | 2026-04-22 (1) | Spec additions — "Augment, don't replace" core principle, Code of Ethics section, constitutional check node, truncate/retract frame types; jarvis-ideas.md created; spec Future Work section trimmed |
+| 2026-04-23 (1) | Spec reorganised — jarvis-spec.md split into spec/ (12 files: north-star, architecture, auth, api, ai, memory, deployment, server, testing, phases, structure, ideas). server-specs.md → spec/server.md, jarvis-ideas.md → spec/ideas.md, jarvis-spec.md deleted. CLAUDE.md updated — spec pointer and stale directory tree removed. |

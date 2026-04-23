@@ -122,8 +122,12 @@ class JarvisState(TypedDict):
     skill_context: str              # populated by ROUTER skills check — zero-initialised to "" by FastAPI
 
     # Output
-    response: str                   # populated by active agent node — read by RESPONDER only, never by FastAPI directly. Zero-initialised to "" by FastAPI.
-    formatted_response: str         # populated by RESPONDER — read by FastAPI to send done frame. Zero-initialised to "" by FastAPI.
+    response: str                   # populated by active agent node — ephemeral per-step output. ORCHESTRATOR reads this
+                                    # after each step, saves to step_results, then clears it before the next step.
+                                    # Empty by the time RESPONDER runs. Zero-initialised to "" by FastAPI.
+    assembled_response: str         # populated by RESPONDER — the final coherent response FastAPI reads to send the done
+                                    # frame and to write to conversation history. Always clean markdown — client owns
+                                    # rendering. Zero-initialised to "" by FastAPI.
 
     # Status
     status_message: str | None      # written by nodes mid-execution for granular status updates — FastAPI fires status frame on change. Zero-initialised to None by FastAPI.
@@ -341,13 +345,11 @@ loop (configurable max) or surface to user for a decision
 - Admin-tier status messages surface the check result (`"Constitutional check: passed"` or `"Constitutional check: violation at token 12 — truncating"`). Power and Standard tiers see nothing — invisible on the happy path, correction is seamless
 
 ### RESPONDER
-- Reads `client_type` from `JarvisState` — formats into `formatted_response` accordingly
-  - `tui`: plain text with Textual markup
-  - `web` / `mobile`: markdown or structured JSON for frontend rendering
-- Checks `error` field on state first — if set, writes a clean error message to `formatted_response` instead of a normal response
-- **Tier-gate steps:** in multi-step results, any `StepResult` with `reason` matching `"tier_gate:{intent}"` is formatted using the hardcoded per-capability message for that intent — no inference call. Each message covers: what the capability is, what it does, why it is not granted to Standard tier, and how to request access (referencing `system.admin_contact` from `config.yaml`). Message content is written by the user and stored in `config.yaml` under `tier_gate_messages` — one entry per gated capability (`system`, `code`). Tunable without a code change. The rest of the step results are formatted normally — successful steps report their output, other blocked steps explain what they were waiting on.
-- **Single-step:** formats `response` directly into `formatted_response` as normal
-- **Multi-step:** when `step_results` is non-empty, summarises all steps into a single coherent `formatted_response` — reports what succeeded, what failed, and what was blocked and why. Tier-aware: Admin gets full detail per step, Standard gets a plain-language summary of the overall outcome.
+- Always produces clean markdown into `assembled_response` — client owns rendering. `client_type` is not used for formatting decisions.
+- Checks `error` field on state first — if set, writes a tier-aware clean error message to `assembled_response` instead of a normal response. Tier-aware content: Admin gets full technical detail (component, error class, what failed and where), Power gets operational detail, Standard gets plain English specific to what the user asked for.
+- **Tier-gate steps:** in multi-step results, any `StepResult` with `reason` matching `"tier_gate:{intent}"` is assembled using the hardcoded per-capability message for that intent — no inference call. Each message covers: what the capability is, what it does, why it is not granted to Standard tier, and how to request access (referencing `system.admin_contact` from `config.yaml`). Message content is written by the user and stored in `config.yaml` under `tier_gate_messages` — one entry per gated capability (`system`, `code`). Tunable without a code change. The rest of the step results are assembled normally — successful steps report their output, other blocked steps explain what they were waiting on.
+- **Single-step:** reads the single `StepResult` from `step_results` and writes its `response` into `assembled_response` as clean markdown.
+- **Multi-step:** when `step_results` has more than one entry, summarises all steps into a single coherent `assembled_response` — reports what succeeded, what failed, and what was blocked and why. Tier-aware content: Admin gets full detail per step, Standard gets a plain-language summary of the overall outcome.
 - Sets `refresh` list on state derived from the intents that executed — RESPONDER is the sole owner of the `refresh` field, no other node writes to it. For multi-step, unions the refresh targets from all successful steps.
-- Does not send WebSocket frames — FastAPI reads `formatted_response` and `refresh` from final state and sends the `done` frame
+- Does not send WebSocket frames — FastAPI reads `assembled_response` and `refresh` from final state and sends the `done` frame
 - No node-entry status frame by default (`STATUS_MESSAGES["responder"]` is empty)

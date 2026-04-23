@@ -99,7 +99,7 @@ async def chat_ws(
                     "retrieved_context": "",
                     "skill_context": "",
                     "response": "",
-                    "formatted_response": "",
+                    "assembled_response": "",
                     "status_message": None,
                     "error": None,
                     "interrupt_payload": None,
@@ -137,13 +137,10 @@ async def chat_ws(
                 if final_state is None:
                     raise RuntimeError("Graph completed without final state")
 
-                await websocket.send_json({
-                    "type": "done",
-                    "message_id": message_id,
-                    "refresh": final_state["refresh"],
-                })
-
-                # Write exchange to history
+                # Write history before done frame — guarantees continuity if the process
+                # crashes after this point. A single SQL INSERT, negligible latency.
+                # Store assembled_response: RESPONDER always produces clean markdown, which
+                # is safe to feed back into Ollama context on the next request.
                 now = datetime.now(timezone.utc)
                 history_repo.save(HistoryEntry(
                     id=None,
@@ -156,9 +153,15 @@ async def chat_ws(
                     id=None,
                     user_id=user.username,
                     role="assistant",
-                    content=final_state["formatted_response"],
+                    content=final_state["assembled_response"],
                     created_at=now,
                 ))
+
+                await websocket.send_json({
+                    "type": "done",
+                    "message_id": message_id,
+                    "refresh": final_state["refresh"],
+                })
 
                 # TODO: fire memory/persist.py as asyncio background task — module not yet built
 

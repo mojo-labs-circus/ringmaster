@@ -99,7 +99,7 @@ One WebSocket connection per authenticated session. The client opens it on login
 
 ### Ownership of Streaming
 
-**FastAPI owns the WebSocket connection and is solely responsible for sending frames.** During a request, FastAPI calls LangGraph via `astream_events` and streams tokens from Ollama to the client as `token` frames as they arrive. When the graph completes at RESPONDER, FastAPI reads `formatted_response` and `refresh` from the final state and sends the `done` frame. LangGraph nodes never touch the WebSocket directly — RESPONDER only transforms state.
+**FastAPI owns the WebSocket connection and is solely responsible for sending frames.** During a request, FastAPI calls LangGraph via `astream_events` and streams tokens from Ollama to the client as `token` frames as they arrive. When the graph completes at RESPONDER, FastAPI reads `assembled_response` and `refresh` from the final state and sends the `done` frame. LangGraph nodes never touch the WebSocket directly — RESPONDER only transforms state.
 
 ### Status Frames — How They Are Sent
 

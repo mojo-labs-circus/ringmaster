@@ -13,9 +13,9 @@ from graph.state import JarvisState
 
 def _stub_node(state: JarvisState) -> dict:
     # Placeholder until real nodes exist — sets the two fields FastAPI reads
-    # after the graph completes: formatted_response and refresh.
+    # after the graph completes: assembled_response and refresh.
     return {
-        "formatted_response": "[JARVIS stub] Graph not yet wired.",
+        "assembled_response": "[JARVIS stub] Graph not yet wired.",
         "refresh": [],
     }
 

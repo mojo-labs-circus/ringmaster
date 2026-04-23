@@ -45,7 +45,7 @@
 8. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
 9. Agent node executes — calls Ollama; FastAPI forwards tokens to client as `token` frames as they arrive
 10. ORCHESTRATOR marks the step complete, clears `error` and `response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
-11. RESPONDER formats final response into `formatted_response`, sets `refresh` on state
+11. RESPONDER assembles final response into `assembled_response` (clean markdown), sets `refresh` on state
 12. Graph returns final state to FastAPI
 13. FastAPI writes new exchange to conversation history repository — synchronous, happens before `done` is sent. A single SQL INSERT, negligible latency. Writing before `done` guarantees conversation continuity — a crash after this point cannot lose the exchange from history.
 14. FastAPI sends `done` frame with `refresh` array from state
@@ -56,7 +56,7 @@
 - **FastAPI owns persistence.** Conversation history lives in Postgres. FastAPI loads it before each invocation and writes it back after.
 - **FastAPI owns the WebSocket.** FastAPI sends all frames (`token`, `done`, `error`, `status`). LangGraph nodes never touch the WebSocket — they only transform state.
 - **FastAPI owns state initialisation.** FastAPI constructs the full `JarvisState` before every invocation, including appending `current_input` to `messages`. Nodes never manipulate the messages list directly.
-- **The graph ends at RESPONDER.** MEMORY_PERSIST is a FastAPI background task, not a graph node. The graph's job is done the moment RESPONDER writes `formatted_response` to state.
+- **The graph ends at RESPONDER.** MEMORY_PERSIST is a FastAPI background task, not a graph node. The graph's job is done the moment RESPONDER writes `assembled_response` to state.
 - **All clients are equal.** All clients connect to FastAPI over Tailscale. No client has a privileged path to LangGraph.
 - **All secrets via environment variables.** Nothing sensitive ever touches `config.yaml` or git. See Secrets section.
 - **Errors are handled at the node level.** Nodes catch expected failures and write to `JarvisState.error` — RESPONDER formats clean messages for the client. Unexpected exceptions bubble to FastAPI's global handler.

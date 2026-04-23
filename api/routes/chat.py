@@ -66,6 +66,7 @@ async def chat_ws(
                 frame = json.loads(raw)
                 message_id = frame["message_id"]
                 content = frame["content"]
+                active_project = frame.get("active_project")
             except (json.JSONDecodeError, KeyError) as exc:
                 await websocket.send_json({
                     "type": "error",
@@ -93,7 +94,7 @@ async def chat_ws(
                     "assistant_name": user.assistant_name,
                     "messages": history + [{"role": "user", "content": content}],
                     "current_input": content,
-                    "active_project": None,
+                    "active_project": active_project,
                     "intent": [],
                     "needs_memory": False,
                     "retrieved_context": "",

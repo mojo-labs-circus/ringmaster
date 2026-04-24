@@ -1,10 +1,17 @@
 models:
-  router: "mistral:7b"
-  general: "qwen2.5:14b"
-  reasoning: "deepseek-r1:14b"
-  embedding: "nomic-embed-text"
-  fallback: "mistral:7b"
-  multimodal: ""                # placeholder — full system: llava:13b (Phase 9)
+  router:         "mistral:7b"
+  planner:        "qwen2.5:14b"
+  conversation:   "qwen2.5:14b"
+  tasks:          "qwen2.5:14b"
+  memory:         "qwen2.5:14b"
+  web:            "qwen2.5:14b"
+  system:         "qwen2.5:14b"
+  responder:      "qwen2.5:14b"
+  code:           "deepseek-coder-v2:16b"
+  constitutional: "mistral:7b"
+  embedding:      "nomic-embed-text"
+  fallback:       "mistral:7b"
+  multimodal:     ""            # placeholder — full system: llava:13b (Phase 9)
 
 ollama:
   base_url: "http://localhost:11434"

@@ -16,13 +16,20 @@ def _load() -> dict:
 
 _config = _load()
 
-# Models
-ROUTER_MODEL: str       = _config["models"]["router"]
-GENERAL_MODEL: str      = _config["models"]["general"]
-REASONING_MODEL: str    = _config["models"]["reasoning"]
-EMBEDDING_MODEL: str    = _config["models"]["embedding"]
-FALLBACK_MODEL: str     = _config["models"]["fallback"]
-MULTIMODAL_MODEL: str   = _config["models"]["multimodal"]
+# Models — one key per node, plus shared infrastructure keys
+ROUTER_MODEL: str         = _config["models"]["router"]
+PLANNER_MODEL: str        = _config["models"]["planner"]
+CONVERSATION_MODEL: str   = _config["models"]["conversation"]
+TASKS_MODEL: str          = _config["models"]["tasks"]
+MEMORY_MODEL: str         = _config["models"]["memory"]
+WEB_MODEL: str            = _config["models"]["web"]
+SYSTEM_MODEL: str         = _config["models"]["system"]
+RESPONDER_MODEL: str      = _config["models"]["responder"]
+CODE_MODEL: str           = _config["models"]["code"]
+CONSTITUTIONAL_MODEL: str = _config["models"]["constitutional"]
+EMBEDDING_MODEL: str      = _config["models"]["embedding"]
+FALLBACK_MODEL: str       = _config["models"]["fallback"]
+MULTIMODAL_MODEL: str     = _config["models"]["multimodal"]
 
 # Ollama
 OLLAMA_BASE_URL: str    = _config["ollama"]["base_url"]

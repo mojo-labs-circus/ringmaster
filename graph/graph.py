@@ -3,11 +3,19 @@ Wires the JARVIS nodes into a compiled LangGraph graph.
 
 Phase 3 stub — a single node returns a hardcoded response so the full
 WebSocket pipeline (auth, history, frame contract) can be verified before
-real nodes are wired in. Replace stub_node with real nodes as each is built."""
+real nodes are wired in. Replace stub_node with real nodes as each is built.
+
+Wiring notes for when real nodes are added:
+- START → ROUTER (normal path) or RESPONDER (when state["correction"] is set)
+- ORCHESTRATOR → SKILLS when current_step.intent == "skill"
+- ORCHESTRATOR → CONVERSATION | TASKS | WEB | SYSTEM | CODE | MEMORY for built-in intents
+- Any node setting error → RESPONDER (universal error edge)
+"""
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from graph.nodes.skills import skills
 from graph.state import JarvisState
 
 
@@ -23,6 +31,8 @@ def _stub_node(state: JarvisState) -> dict:
 def _build_graph() -> CompiledStateGraph:
     builder = StateGraph(JarvisState)
     builder.add_node("stub_node", _stub_node)
+    builder.add_node("skills", skills)
+    # skills node is wired by ORCHESTRATOR conditional edge — not connected in stub
     builder.add_edge(START, "stub_node")
     builder.add_edge("stub_node", END)
     return builder.compile()

@@ -365,6 +365,15 @@ loop (configurable max) or surface to user for a decision
 - The ethics principles are hardcoded in `api/constitutional.py` — not loaded from config or any user-editable source. Changing them requires a code change, by design
 - Admin-tier status messages surface the check result (`"Constitutional check: passed"` or `"Constitutional check: violation at token 12 — truncating"`). Power and Standard tiers see nothing — invisible on the happy path, correction is seamless
 
+### SKILLS
+- Dispatched to by ORCHESTRATOR when `current_step.intent == "skill"` — handles all user-defined capabilities that are not built-in nodes
+- Reads `current_step.skill_name` and looks it up in the skills registry (`skills/approved/` directory). If found, invokes the skill function with the current step description and state as context. If not found, writes a clean "skill unavailable" message to `step_response`.
+- Skills are composed of tools (`tools/llm.py`, SMTP, HTTP clients, etc.) and may issue `confirm_request` interrupts before any irreversible action — the same interrupt/confirm pattern used by SYSTEM and CODE. The user can cancel and follow up conversationally; ORCHESTRATOR re-runs the step with the new instruction.
+- **Model selection:** SKILLS node uses `models.skills` from `config.yaml` as the default. Individual skills may specify their own model key in their skill definition — if present, that overrides the default. Model names always come from `config.yaml` via `config.py` — never hardcoded inside a skill function.
+- Writes output to `step_response` on success, sets `error` on unexpected failure.
+- **Phase 3:** stub only — registry is empty, no skills exist yet. Returns a clean "no skills available" message to `step_response`. ROUTER never produces `intent: "skill"` in Phase 3. The node and conditional edge exist so Phase 8 slots in without graph rewiring.
+- **Phase 8:** registry populated with approved skills. ROUTER updated to detect skill intents from user messages and set `skill_name` on the matching Step.
+
 ### RESPONDER
 - **Sole source of `token` frames.** Agent nodes execute silently — no tokens are forwarded to the client during their LLM calls. RESPONDER is the only node whose LLM output streams to the user. `chat.py` filters `on_chat_model_stream` events to `langgraph_node == "responder"` only.
 - Always makes an LLM call — single-step and multi-step alike. Consistent behaviour regardless of plan size; no special-casing needed.

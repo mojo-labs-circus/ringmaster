@@ -13,10 +13,11 @@ from typing import TypedDict
 
 
 class Step(TypedDict):
-    id: str               # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
-    intent: str           # node to dispatch to — "tasks"|"memory"|"code"|"web"|"system"|"conversation"
-    description: str      # neutral plain-language label — ORCHESTRATOR uses this as raw material for tier-aware status messages
-    depends_on: list[str] # IDs of steps that must succeed first. Empty list = no dependencies.
+    id: str                    # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
+    intent: str                # node to dispatch to — "tasks"|"memory"|"code"|"web"|"system"|"conversation"|"skill"
+    description: str           # neutral plain-language label — ORCHESTRATOR uses this as raw material for tier-aware status messages
+    depends_on: list[str]      # IDs of steps that must succeed first. Empty list = no dependencies.
+    skill_name: str | None     # populated by PLANNER when intent is "skill" — name of the skill to look up in the registry. None for all built-in intents.
 
 
 class StepResult(TypedDict):

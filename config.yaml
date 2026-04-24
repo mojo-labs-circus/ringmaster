@@ -9,6 +9,7 @@ models:
   responder:      "qwen2.5:14b"
   code:           "deepseek-coder-v2:16b"
   constitutional: "mistral:7b"
+  skills:         "qwen2.5:14b"
   embedding:      "nomic-embed-text"
   fallback:       "mistral:7b"
   multimodal:     ""            # placeholder — full system: llava:13b (Phase 9)

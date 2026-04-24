@@ -30,6 +30,7 @@ class StepResult(TypedDict):
 class JarvisState(TypedDict):
     # Identity — populated by FastAPI before invocation
     user_id: str          # always present, never None — hardcoded to "clarkehines" in dev
+    message_id: str       # client-generated request ID — correlates all frames and improve log events for this request
     tier: str             # "admin" | "power" | "standard" — from live DB record
     client_type: str      # "tui" | "web" | "mobile"
     assistant_name: str   # per-user, from live DB record

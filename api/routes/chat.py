@@ -132,6 +132,7 @@ async def chat_ws(
                 history = history_repo.load(user.username)
                 state: JarvisState = {
                     "user_id": user.username,
+                    "message_id": message_id,
                     "tier": user.tier,
                     "client_type": client.client_type,
                     "assistant_name": user.assistant_name,

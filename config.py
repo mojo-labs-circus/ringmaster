@@ -54,8 +54,9 @@ DB_BACKEND: str         = os.environ.get("JARVIS_DB_BACKEND", "sqlite")
 CONTEXT_WINDOW_BUDGET: int = _config["history"]["context_window_budget"]
 
 # Maintenance
-RETENTION_DAYS: int     = _config["maintenance"]["retention_days"]
-LOG_ERROR_THRESHOLD: int = _config["maintenance"]["log_error_threshold"]
+RETENTION_DAYS: int          = _config["maintenance"]["retention_days"]
+LOG_ERROR_THRESHOLD: int     = _config["maintenance"]["log_error_threshold"]
+IDLE_THRESHOLD_MINUTES: int  = _config["maintenance"]["idle_threshold_minutes"]
 
 # Logging
 LOG_PATH: str           = str(Path(_config["logging"]["path"]).expanduser())
@@ -67,6 +68,12 @@ VAULT_BASE: str         = str(Path(_config["memory"]["vault_base"]).expanduser()
 CHUNK_SIZE: int         = _config["memory"]["chunk_size"]
 CHUNK_OVERLAP: int      = _config["memory"]["chunk_overlap"]
 
+# Improve log
+IMPROVE_LOG_PATH: str   = str(Path(_config["improve"]["log_path"]).expanduser())
+
+# Admin
+ADMIN_CONTACT: str      = _config["admin"]["contact"]
+
 # Skills
 SHARED_SKILLS_PATH: str = _config["skills"]["shared_approved_path"]
 
@@ -77,6 +84,9 @@ ALLOWED_PATHS: list[str] = [
 
 # Coding Team
 MAX_REVIEW_ITERATIONS: int = _config["coding_team"]["max_review_iterations"]
+
+# Tier gate messages — keyed by capability, shown to Standard tier users
+TIER_GATE_MESSAGES: dict[str, str] = _config["tier_gate_messages"]
 
 # Status messages
 STATUS_MESSAGES: dict[str, str] = _config["status_messages"]

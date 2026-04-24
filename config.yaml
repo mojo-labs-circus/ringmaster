@@ -37,6 +37,7 @@ history:
 maintenance:
   retention_days: 90
   log_error_threshold: 50
+  idle_threshold_minutes: 10
 
 logging:
   path: "~/.jarvis/jarvis.log"
@@ -48,6 +49,12 @@ memory:
   chunk_size: 500
   chunk_overlap: 50
 
+improve:
+  log_path: "~/.jarvis/improve.jsonl"
+
+admin:
+  contact: "Clarke"
+
 skills:
   shared_approved_path: "~/.jarvis/skills/approved"  # dev — full system: /mnt/hdd/jarvis/shared/05-skills/approved
 
@@ -58,6 +65,17 @@ system:
 
 coding_team:
   max_review_iterations: 3
+
+tier_gate_messages:
+  system: >-
+    Shell access lets me run commands directly on your device — things like moving files,
+    changing settings, or running scripts. Because some commands can permanently delete data
+    or break things in ways that are hard to undo, this feature requires a quick walkthrough
+    before it's switched on. Ask Clarke to get set up.
+  code: >-
+    Code execution lets me write and run programs on your device. To keep things safe it
+    requires a short intro to how the sandbox works and what to expect. Ask Clarke to get
+    set up.
 
 status_messages:
   router: "Thinking..."

@@ -156,6 +156,9 @@ Jarvis is accessible from anywhere via whatever client fits the context — web,
 ### Offline mode (very long term)
 Once everything is stable and the family is using Jarvis daily, explore a lightweight offline mode — a self-contained local build that works without the home server (e.g. on a plane). Data syncs back to the server when reconnected. Not worth thinking about until everything else is solid.
 
+### Post-stream correctness watcher
+A second concurrent task alongside CONSTITUTIONAL that checks factual correctness of RESPONDER's output after the stream completes — not ethics violations, but factual errors, hallucinations, or claims that contradict the user's known context. Would run post-stream only (retract path) since correctness can only be evaluated on the complete response. Lower priority than ethics checking; only worth adding once the platform is stable and CONSTITUTIONAL is well-validated. Could log to the improve log as a new event type for fine-tuning signal.
+
 ### Multimodal file input
 Two distinct use cases:
 1. **In-chat attachment** — user attaches a file to a message and Jarvis processes it in context (read, summarise, reason over it). Text and code files first, then images, then audio/video.

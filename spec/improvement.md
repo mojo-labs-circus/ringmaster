@@ -48,7 +48,6 @@ Every event shares a common envelope:
 |---|---|---|---|
 | `constitutional_violation` | `api/constitutional.py` | High | Ethics principle violated — explicit label with original content and correction |
 | `confirm_cancelled` | `api/routes/chat.py` | High | User reviewed a proposed action and cancelled — explicit rejection of the model's plan |
-| `history_edit` | `api/routes/chat.py` | High | User deleted history and resent — explicit retry, original exchange was unsatisfactory |
 | `memory_forget` | `graph/nodes/memory.py` | Medium | User asked Jarvis to forget something — signal that persist.py persisted something wrong or stale |
 | `persist_decision` | `memory/persist.py` | Medium | Evaluator verdict on whether an exchange was worth persisting — builds picture of memory quality over time |
 | `skill_proposed` | skills system (Phase 8) | Medium | Skill proposed by Jarvis, awaiting approval — implicit rejection if never moved to approved/ |
@@ -81,16 +80,6 @@ Every event shares a common envelope:
   "proposed_action": "rm -rf /tmp/jarvis-scratch",
   "payload_type": "command",
   "original_input": "clean up the jarvis scratch directory"
-}
-```
-
-### `history_edit`
-```json
-{
-  "deleted_from_entry_id": 142,
-  "original_input": "what's the best way to structure this module?",
-  "original_response": "...the response the user rejected...",
-  "replacement_input": "actually, explain the tradeoffs between X and Y approaches"
 }
 ```
 
@@ -167,4 +156,4 @@ Not implemented in Phase 3 — the detection classifier adds latency and complex
 
 The improvement log is not itself a training dataset — it is raw labelled event data. When the time comes to fine-tune (see `spec/ideas.md`), a preprocessing step reads the log, filters by event type and quality threshold, and constructs (input, output, correction) triples in the format required by the fine-tuning tooling (e.g. Unsloth, LLaMA-Factory).
 
-The `constitutional_violation` and `confirm_cancelled` events are the highest-quality signal — they have explicit correct/incorrect labels. `history_edit` events are close behind. The rest are softer signals useful for understanding model behaviour patterns rather than direct training labels.
+The `constitutional_violation` and `confirm_cancelled` events are the highest-quality signal — they have explicit correct/incorrect labels. The rest are softer signals useful for understanding model behaviour patterns rather than direct training labels.

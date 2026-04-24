@@ -181,7 +181,16 @@ Interrupt responses (`type` field present):
 {"type": "cancel",  "message_id": "abc123"}
 ```
 
-FastAPI dispatches on the presence of `type` — `confirm` or `cancel` routes to `graph.resume()`, no `type` means a regular message. No other client-originated `type` values are valid.
+FastAPI dispatches on the presence of `type`:
+- No `type` → regular message, processed normally
+- `confirm` / `cancel` → interrupt response, routes to `graph.resume()`
+- `history_edit` → edit-and-retry: `chat.py` deletes all history entries from `delete_from_entry_id` onwards (inclusive), then processes `content` as a fresh message. No improve log event — too ambiguous to be a reliable training signal (typo fixes and genuine retries are indistinguishable).
+
+```json
+{"type": "history_edit", "message_id": "abc123", "delete_from_entry_id": 142, "content": "actually, explain the tradeoffs between X and Y"}
+```
+
+No other client-originated `type` values are valid.
 
 `active_project` is optional on regular messages — omit when no project is selected. The client owns this state: when the user selects a project (web: project selector button, TUI: `/project <name>` slash command), the client stores it and includes it in every subsequent message until changed or cleared. FastAPI reads it from each message envelope and passes it to `JarvisState` — no per-connection storage needed. If absent, FastAPI sets `active_project: None` on state.
 

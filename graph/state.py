@@ -72,6 +72,7 @@ class JarvisState(TypedDict):
 
     # Multi-step execution
     step_plan: list[Step] | None    # produced by PLANNER — zero-initialised to None by FastAPI
+    current_step: Step | None       # the step ORCHESTRATOR is currently executing — zero-initialised to None by FastAPI
     step_results: list[StepResult]  # accumulated step outcomes written by ORCHESTRATOR — zero-initialised to [] by FastAPI
 
     # Refresh signals — zero-initialised to [] by FastAPI

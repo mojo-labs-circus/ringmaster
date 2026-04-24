@@ -2,6 +2,7 @@
 WebSocket endpoint for chat. Owns all frame sending.
 Uses astream_events to stream tokens and status frames as the graph executes."""
 
+import asyncio
 import json
 import logging
 import secrets
@@ -45,11 +46,60 @@ async def chat_ws(
     logger.info("Client connected: %s via %s from %s (%s)", user.username, client.client_type, client_hostname, client_ip)
 
     connections.register(user.username, client)
+
+    # Depth-1 buffer — last message wins while the processor is busy.
+    # pending: the envelope (the raw message string).
+    # message_ready: the doorbell (signals the processor to wake up).
+    # The reader owns all WebSocket reads. The processor owns all processing and sending.
+    pending: str | None = None
+    message_ready = asyncio.Event()
     is_busy = False
+
+    async def _reader() -> None:
+        """Reads frames from the WebSocket continuously.
+
+        Idle: saves to pending, rings the doorbell for the processor.
+        Busy: saves to pending (last wins), sends "One moment..." immediately.
+        Disconnect: clears pending, rings doorbell so the processor exits cleanly.
+        """
+        nonlocal pending
+        try:
+            while True:
+                raw = await websocket.receive_text()
+                pending = raw
+                if is_busy:
+                    try:
+                        frame = json.loads(raw)
+                        message_id = frame.get("message_id", secrets.token_hex(4))
+                    except json.JSONDecodeError:
+                        message_id = secrets.token_hex(4)
+                    await websocket.send_json({
+                        "type": "status",
+                        "message_id": message_id,
+                        "message": "One moment...",
+                    })
+                else:
+                    message_ready.set()
+        except WebSocketDisconnect:
+            logger.info(
+                "Client disconnected: %s via %s from %s (%s)",
+                user.username, client.client_type, client_hostname, client_ip,
+            )
+            pending = None       # discard any buffered message
+            message_ready.set()  # wake the processor so it exits cleanly
+
+    reader_task = asyncio.create_task(_reader())
 
     try:
         while True:
-            raw = await websocket.receive_text()
+            await message_ready.wait()
+            message_ready.clear()
+
+            raw = pending
+            pending = None
+
+            if raw is None:
+                break  # disconnect signalled by reader
 
             # Re-check token_version on every message — catches forced deauth mid-session
             current_user = auth_repo.get_user(user.username)
@@ -72,15 +122,6 @@ async def chat_ws(
                     "type": "error",
                     "message_id": secrets.token_hex(4),
                     "message": f"Invalid frame: {exc}",
-                })
-                continue
-
-            # Busy — drop with status frame, no queuing
-            if is_busy:
-                await websocket.send_json({
-                    "type": "status",
-                    "message_id": message_id,
-                    "message": "I'm still working on your last message.",
                 })
                 continue
 
@@ -122,6 +163,16 @@ async def chat_ws(
                                 "type": "status",
                                 "message_id": message_id,
                                 "message": STATUS_MESSAGES[node_name],
+                            })
+
+                    elif event_type == "on_chat_model_stream":
+                        # Streaming token from an LLM call inside a node
+                        chunk_content = event["data"]["chunk"].content
+                        if chunk_content:
+                            await websocket.send_json({
+                                "type": "token",
+                                "message_id": message_id,
+                                "content": chunk_content,
                             })
 
                     elif event_type == "on_custom_event" and event_name == "status_message":
@@ -176,9 +227,15 @@ async def chat_ws(
 
             finally:
                 is_busy = False
-
-    except WebSocketDisconnect:
-        logger.info("Client disconnected: %s via %s from %s (%s)", user.username, client.client_type, client_hostname, client_ip)
+                # If the reader buffered a message during processing, ring the doorbell
+                # so the processor picks it up on the next iteration.
+                if pending is not None:
+                    message_ready.set()
 
     finally:
+        reader_task.cancel()
+        try:
+            await reader_task
+        except asyncio.CancelledError:
+            pass
         connections.deregister(user.username, client)

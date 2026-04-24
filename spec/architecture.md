@@ -43,9 +43,9 @@
 6. PLANNER produces a `StepPlan` from `intent` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
 7. `MEMORY_RETRIEVE` runs if `needs_memory: true` — retrieves relevant context from ChromaDB, writes to `retrieved_context`
 8. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
-9. Agent node executes — calls Ollama; FastAPI forwards tokens to client as `token` frames as they arrive
+9. Agent node executes — calls Ollama silently, writes output to `step_response`. No `token` frames are sent during agent node execution. Status frames keep the user informed (`status_message` updates, node-entry `STATUS_MESSAGES`).
 10. ORCHESTRATOR marks the step complete, clears `error` and `step_response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
-11. RESPONDER assembles final response into `assembled_response` (clean markdown), sets `refresh` on state
+11. RESPONDER makes an LLM call to assemble all `step_results` into a single coherent `assembled_response` (clean markdown). RESPONDER is the sole source of `token` frames — `chat.py` only forwards `on_chat_model_stream` events where `langgraph_node == "responder"`. Sets `refresh` on state.
 12. Graph returns final state to FastAPI
 13. FastAPI writes new exchange to conversation history repository — synchronous, happens before `done` is sent. A single SQL INSERT, negligible latency. Writing before `done` guarantees conversation continuity — a crash after this point cannot lose the exchange from history.
 14. FastAPI sends `done` frame with `refresh` array from state

@@ -333,23 +333,46 @@ loop (configurable max) or surface to user for a decision
 - The client will never receive `token` frames before a `confirm_request` frame from SYSTEM — all token streaming happens after confirmation, or not at all on cancel. `status_message` frames may arrive before the `confirm_request` (the "Composing command..." phase) and after it (the "Executing now..." phase).
 
 ### CONSTITUTIONAL
-- Runs as a concurrent async task launched by `chat.py` at the moment token streaming begins — not a LangGraph node in the graph, but a parallel coroutine
-- Monitor only — CONSTITUTIONAL never touches the WebSocket or calls Ollama directly. It detects violations and signals `chat.py`, which owns all correction streaming
-- Launched with: a reference to the token buffer, the original model being used, and the `message_id` of the current exchange
-- Consumes the token buffer as it fills, evaluating the response against the hardcoded ethics principles using the `constitutional` model from `config.yaml` — a simple binary classification task, not reasoning
-- **Violation detected mid-stream:** CONSTITUTIONAL signals `chat.py` with `{token_count, violation, principle}` — the number of clean tokens already sent, what the problematic content was, and which ethics principle it broke. `chat.py` halts the Ollama stream, sends a `truncate` frame to the client, then makes a fresh Ollama call to the original model with the clean tokens so far plus a correction instruction derived from the violation signal. Streams the corrected continuation as normal `token` frames from that point.
-- **Violation detected post-stream** (violation in the tail of the response, `done` already sent): CONSTITUTIONAL signals `chat.py` with the same `{token_count, violation, principle}` shape. `chat.py` generates a full corrected response via the original model and sends a `retract` frame. `chat.py` awaits the CONSTITUTIONAL task after sending `done` — the WebSocket stays open for this window before accepting the next message.
-- **No violation detected:** the coroutine completes silently — no frame sent, no latency added on the happy path
+- Runs as a concurrent async task launched by `chat.py` at the moment RESPONDER begins streaming — not a LangGraph node in the graph, but a parallel coroutine
+- Monitor only — CONSTITUTIONAL never touches the WebSocket or calls Ollama directly. It detects violations and signals `chat.py`, which owns all correction logic
+- Only RESPONDER's token stream is monitored — agent nodes execute silently so there is no intermediate token output to check
+
+**Three objects created by `chat.py` before launching CONSTITUTIONAL, all passed in at launch:**
+- `token_queue: asyncio.Queue` — `chat.py` puts each token into this queue immediately after sending it to the client. When RESPONDER's stream ends, `chat.py` puts `None` as a sentinel so CONSTITUTIONAL knows to stop. CONSTITUTIONAL reads with `await token_queue.get()` — sleeps between tokens, no polling.
+- `violation_event: asyncio.Event` — CONSTITUTIONAL sets this when a violation is detected. `chat.py` checks `violation_event.is_set()` after each `websocket.send_json` call in the token loop. The check is a single boolean read — nanoseconds — performed at a natural yield point after network I/O.
+- `violation_data: dict | None` — CONSTITUTIONAL writes `{token_count, violation, principle}` here before setting the event. `chat.py` reads it when `violation_event.is_set()` is true.
+
+**`chat.py` captures `step_results` mid-stream** — during the original `astream_events` loop, when ORCHESTRATOR's `on_chain_end` event fires, `chat.py` saves the `step_results` from its output. This happens before RESPONDER starts, so the data is always available if a correction is needed.
+
+- Consumes `token_queue` as it fills with RESPONDER's output, evaluating the accumulated buffer against the hardcoded ethics principles using the `constitutional` model from `config.yaml` — a simple binary classification task, not reasoning
+
+**Violation detected mid-stream (truncate path):**
+1. CONSTITUTIONAL writes `{token_count, violation, principle}` to `violation_data` and sets `violation_event`
+2. `chat.py` detects it after the next token send, breaks out of the original `astream_events` loop (original graph is abandoned, its `assembled_response` is binned)
+3. `chat.py` sends a `truncate` frame with `token_count` — client strips back to the first N clean tokens. No status frame between `truncate` and the correction tokens — the correction is seamless and invisible.
+4. `chat.py` immediately re-invokes the graph with a new state carrying: the captured `step_results`, all original identity fields, and `correction: {clean_prefix, violation, principle}`. `clean_prefix` is the joined text of the first N clean tokens — RESPONDER uses it to maintain continuity. A conditional START edge routes directly to RESPONDER when `correction` is set.
+5. RESPONDER generates a **full corrected response from scratch** — it has complete context and knows what was already shown. `chat.py` counts incoming tokens from the correction run: the first N are accumulated into `assembled_response` but not forwarded to the client (already on screen). Token N+1 onwards are accumulated and forwarded. Client sees a seamless continuation.
+6. Correction graph completes: `assembled_response` is the full corrected response. `chat.py` writes history, sends `done`, fires `memory_persist`. Correction graph owns all post-stream responsibilities — the original graph is fully abandoned.
+
+**Violation detected post-stream (retract path)** — violation in the tail of the response, detected after CONSTITUTIONAL sees the `None` sentinel:
+1. CONSTITUTIONAL sets `violation_event` with `violation_data`
+2. `chat.py` awaits the CONSTITUTIONAL task after sending `done` — the WebSocket stays open for this window
+3. If violation found: `chat.py` re-invokes the graph identically to the truncate path (correction state, straight to RESPONDER, full generation), but with `token_count: 0` — all correction tokens are forwarded to the client. `chat.py` sends a `retract` frame with the complete corrected response as `replacement`. History record is updated with the corrected `assembled_response` before `memory_persist` fires.
+
+**No violation detected:** the coroutine completes silently — no frame sent, no latency added on the happy path.
+
 - **Improvement log:** writes a `constitutional_violation` event on every violation (truncate or retract). Clean passes are not logged — no noise. See `spec/improvement.md`.
 - The ethics principles are hardcoded in `api/constitutional.py` — not loaded from config or any user-editable source. Changing them requires a code change, by design
 - Admin-tier status messages surface the check result (`"Constitutional check: passed"` or `"Constitutional check: violation at token 12 — truncating"`). Power and Standard tiers see nothing — invisible on the happy path, correction is seamless
 
 ### RESPONDER
+- **Sole source of `token` frames.** Agent nodes execute silently — no tokens are forwarded to the client during their LLM calls. RESPONDER is the only node whose LLM output streams to the user. `chat.py` filters `on_chat_model_stream` events to `langgraph_node == "responder"` only.
+- Always makes an LLM call — single-step and multi-step alike. Consistent behaviour regardless of plan size; no special-casing needed.
 - Always produces clean markdown into `assembled_response` — client owns rendering. `client_type` is not used for formatting decisions.
 - Checks `error` field on state first — if set, writes a tier-aware clean error message to `assembled_response` instead of a normal response. Tier-aware content: Admin gets full technical detail (component, error class, what failed and where), Power gets operational detail, Standard gets plain English specific to what the user asked for.
 - **Tier-gate steps:** in multi-step results, any `StepResult` with `reason` matching `"tier_gate:{intent}"` is assembled using the hardcoded per-capability message for that intent — no inference call. Each message covers: what the capability is, what it does, why it is not granted to Standard tier, and how to request access (referencing `system.admin_contact` from `config.yaml`). Message content is written by the user and stored in `config.yaml` under `tier_gate_messages` — one entry per gated capability (`system`, `code`). Tunable without a code change. The rest of the step results are assembled normally — successful steps report their output, other blocked steps explain what they were waiting on.
-- **Single-step:** reads the single `StepResult` from `step_results` and writes its `response` into `assembled_response` as clean markdown.
-- **Multi-step:** when `step_results` has more than one entry, summarises all steps into a single coherent `assembled_response` — reports what succeeded, what failed, and what was blocked and why. Tier-aware content: Admin gets full detail per step, Standard gets a plain-language summary of the overall outcome.
+- **Single-step:** reads the single `StepResult` from `step_results` and assembles it into `assembled_response` as clean markdown via LLM call.
+- **Multi-step:** summarises all steps into a single coherent `assembled_response` — reports what succeeded, what failed, and what was blocked and why. Tier-aware content: Admin gets full detail per step, Standard gets a plain-language summary of the overall outcome.
 - Sets `refresh` list on state derived from the intents that executed — RESPONDER is the sole owner of the `refresh` field, no other node writes to it. For multi-step, unions the refresh targets from all successful steps.
 - Does not send WebSocket frames — FastAPI reads `assembled_response` and `refresh` from final state and sends the `done` frame
 - No node-entry status frame by default (`STATUS_MESSAGES["responder"]` is empty)

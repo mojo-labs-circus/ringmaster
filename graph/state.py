@@ -70,6 +70,11 @@ class JarvisState(TypedDict):
     # Interrupt / confirm — zero-initialised to None by FastAPI
     interrupt_payload: dict | None  # written by node before interrupt() — FastAPI builds confirm_request frame
 
+    # Constitutional correction — zero-initialised to None by FastAPI
+    correction: dict | None  # set by chat.py on truncate/retract re-invocation.
+                             # Shape: {clean_prefix, violation, principle}
+                             # Conditional START edge routes directly to RESPONDER when set.
+
     # Multi-step execution
     step_plan: list[Step] | None    # produced by PLANNER — zero-initialised to None by FastAPI
     current_step: Step | None       # the step ORCHESTRATOR is currently executing — zero-initialised to None by FastAPI

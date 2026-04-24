@@ -148,6 +148,7 @@ async def chat_ws(
                     "status_message": None,
                     "error": None,
                     "interrupt_payload": None,
+                    "correction": None,
                     "step_plan": None,
                     "current_step": None,
                     "step_results": [],

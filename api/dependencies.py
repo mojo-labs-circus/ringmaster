@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
 from fastapi import Depends, HTTPException, Query, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,6 +16,7 @@ class ConnectedClient:
     user: User
     client_type: str
     websocket: WebSocket
+    last_activity: datetime | None = field(default=None)
 
 
 _bearer = HTTPBearer()

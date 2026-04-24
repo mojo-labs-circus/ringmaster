@@ -125,6 +125,8 @@ async def chat_ws(
                 })
                 continue
 
+            client.last_activity = datetime.now(timezone.utc)
+
             is_busy = True
             try:
                 history = history_repo.load(user.username)

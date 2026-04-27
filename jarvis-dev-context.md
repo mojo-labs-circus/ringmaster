@@ -17,7 +17,7 @@
 
 - **Host:** pearlybaker | **User:** clarkehines | **OS:** Arch Linux
 - **GPU:** full CUDA available
-- **Active branch:** `phase-3`
+- **Active branch:** `phase-3` (rename to `mk1` when convenient)
 - **JARVIS code:** `~/projects/jarvis/`
 - **Python venv:** `~/.venvs/jarvis`
 - **Dev DBs:** `~/.jarvis/auth.db`, `~/.jarvis/tasks.db`, `~/.jarvis/history.db`
@@ -44,26 +44,20 @@
 
 ---
 
-## Phase Status
+## Mk Status
 
-| Phase | Name | Status |
-|---|---|---|
-| 1 | Foundation — LangGraph + TUI skeleton | ✅ Done |
-| 2 | Memory — ChromaDB + vault ingestion + RAG | ✅ Done |
-| 3 | Tools + FastAPI — all nodes, JWT auth, WebSocket | 🔜 **Current** |
-| 4 | Multi-User + Full Auth | ⏳ Pending |
-| 5 | Web Client | ⏳ Pending |
-| 6 | Server Deployment + Postgres Migration (summer 2026) | ⏳ Pending |
-| 7 | Family Onboarding | ⏳ Pending |
-| 8 | Coding Team + Skills System | ⏳ Pending |
-| 9 | Remaining Clients (iOS, macOS, Windows, Linux desktop) | ⏳ Pending |
-| 10 | Voice | ⏳ Pending |
+| Mark | Name | Target | Status |
+|---|---|---|---|
+| Foundation | Phase 1 (LangGraph/TUI) + Phase 2 (Memory/ChromaDB) | — | ✅ Done |
+| Mk1 | Family product — core nodes, web client, server, family onboarded | Summer 2026 | 🔜 **Current** |
+| Mk2 | Dev tool — SYSTEM, CODE, Coding Team, admin, tier gating | End of 2027 | ⏳ Pending |
+| Mk3 | Complete — native clients, voice | End of 2029 | ⏳ Pending |
 
 ---
 
-## Phase 3 Checklist
+## Mk1 Checklist
 
-**FastAPI skeleton first — before any tool node:**
+**FastAPI skeleton — complete ✅**
 - [x] Minimal FastAPI server — single `/chat` WebSocket endpoint
 - [x] Auth repository — `db/auth/` (models, repository, sqlite, postgres stub, factory)
 - [x] `POST /auth/login` — returns access + refresh tokens, inserts `refresh_tokens` row
@@ -87,29 +81,95 @@
 - [x] Daily maintenance job — `maintenance/cleanup.py` (expired tokens, invites, old history, error log threshold)
 - [x] **Verify FastAPI end to end with throwaway test client before rewriting TUI**
 
-**Then tool nodes:**
+**Tool layer:**
 - [x] `tools/llm.py` — Ollama wrapper, streaming, fallback logic, `StreamResult` dataclass
 - [x] `tools/tokens.py` — token counting for history budget
 - [x] Full spec audit of DAG orchestration section (PLANNER + ORCHESTRATOR)
+
+**Remaining nodes:**
 - [ ] PLANNER node — `graph/nodes/planner.py` — calls REASONING_MODEL via `tools/llm.py`, receives `intent: list[str]`, produces `step_plan: list[Step]`, sets `error` on failure
-- [ ] ORCHESTRATOR node — `graph/nodes/orchestrator.py` — reactive loop, dispatches to agent nodes, writes `step_results`, clears `error`/`step_response` between steps, marks blocked steps, routes to RESPONDER when plan exhausted
+- [ ] ORCHESTRATOR node — `graph/nodes/orchestrator.py` — reactive loop, dispatches to CONVERSATION, TASKS, WEB, and MEMORY agent nodes, writes `step_results`, clears `error`/`step_response` between steps, marks blocked steps, routes to RESPONDER when plan exhausted
 - [ ] `graph/graph.py` wiring — conditional edge skipping MEMORY_RETRIEVE when `needs_memory: false`, ORCHESTRATOR loop back to itself or forward to RESPONDER, universal error edge routing any node with `error` set directly to RESPONDER
 - [ ] TASKS node + `db/tasks/` repository + `GET /tasks` + `DELETE /tasks/{id}`
-- [ ] CONVERSATION node — general chat, all tiers
+- [ ] CONVERSATION node — general chat, all users, calls `tools/llm.py` with `messages` and `retrieved_context`
 - [ ] WEB node + `tools/search.py` (DuckDuckGo + Playwright)
-- [ ] SYSTEM node + `tools/shell.py` — Admin/Power only, interrupt/confirm before every command
-- [ ] CODE node + `tools/sandbox.py` — Admin/Power only, single-agent in Phase 3
-- [ ] MEMORY node — explicit query/forget, all tiers
-- [ ] MEMORY_RETRIEVE node
-- [ ] `memory/persist.py` background task
-- [ ] `GET /memory` — stub returning `[]` in Phase 3
-- [ ] ROUTER updated — `needs_memory` per intent, skills check, sets `tier_gate` list for any tier-gated intents
-- [ ] RESPONDER updated — checks `error`, formats for `client_type`, derives and sets `refresh`, formats tier-gate step results using hardcoded per-capability messages from `config.yaml`
-- [ ] CONSTITUTIONAL check — `api/constitutional.py` — concurrent async coroutine, watches token buffer, fires `truncate` frame on ethics violation, silent on happy path
-- [ ] TUI rewritten — connects to FastAPI WebSocket, opens on startup, reconnects on drop
-- [ ] `tui/auth.py` — `~/.jarvis/auth.json`, silent refresh, deletes on logout
-- [ ] TUI handles `confirm_request` (disable input), `done` (re-fetch `refresh` panels)
-- [ ] Unit tests alongside every node — pre-commit hook runs `pytest tests/unit/`
+- [ ] MEMORY node — explicit query/forget against ChromaDB, scoped to `user_id` `[pearlybaker only]`
+- [ ] MEMORY_RETRIEVE node — queries ChromaDB, populates `retrieved_context` `[pearlybaker only]`
+- [ ] `memory/persist.py` — asyncio background task, evaluates exchange, writes to vault then ingests into ChromaDB `[pearlybaker only]`
+- [ ] `GET /memory` — stub returning `[]`
+- [ ] ROUTER updated — `needs_memory` flag per intent. No tier gating in Mk1 — all users have equal access
+- [ ] RESPONDER updated — checks `error` field, derives and sets `refresh` list from `intent`, formats response for `client_type`
+- [ ] TUI rewritten — connects to FastAPI WebSocket, opens on startup, reconnects automatically on drop
+- [ ] `tui/auth.py` — `~/.jarvis/auth.json`, silent refresh, handles 401, deletes on logout, login prompt if missing or expired
+- [ ] TUI handles `done` frames and re-fetches panels listed in `refresh`
+- [ ] Unit tests alongside every node implementation
+- [ ] Pre-commit hook configured — `pytest tests/unit/` blocks commits on failure
+
+**Multi-user verification:**
+- [ ] Three test accounts created via invite flow
+- [ ] Per-user data scoping verified end-to-end
+- [ ] Refresh token rotation
+- [ ] Assistant name hotswappable — `PATCH /profile` updates DB, `profile` frame pushed, clients re-fetch `GET /profile`
+- [ ] Multiple concurrent users verified
+
+**Web client:**
+- [ ] Login screen — prompts for credentials, stores tokens on success
+- [ ] Chat panel — full WebSocket flow, streaming token display
+- [ ] Tasks panel — reads `GET /tasks`, updates automatically on `done` frame `refresh` array
+- [ ] Memory panel — reads `GET /memory` (stub)
+- [ ] User settings — assistant name
+- [ ] Silent token refresh — transparent, user never sees it
+- [ ] Handles `profile` WebSocket frames — re-fetches `GET /profile` on receipt
+- [ ] Reconnects automatically on dropped WebSocket connection
+
+**Server deployment:**
+- [ ] `PostgresAuthRepository`, `PostgresTaskRepository`, `PostgresHistoryRepository` — full implementations
+- [ ] Alembic introduced — all schema changes from this point forward go through migrations
+- [ ] Migration script: SQLite → Postgres
+- [ ] Docker Compose — Postgres, ChromaDB, Ollama, FastAPI, web client
+- [ ] Data on `/tank/docker/jarvis/` (ZFS, auto-snapshotted)
+- [ ] Caddy — `jarvis.home`
+- [ ] Tailscale access from all devices
+- [ ] ofelia for daily maintenance job
+- [ ] All clients pointed at server — config update only
+
+**Family onboarding:**
+- [ ] Family on Tailscale — invite link per person
+- [ ] Family accounts created via invite flow, all register via `jarvis.home`
+- [ ] Per-user vaults initialised
+- [ ] Shared family vault populated with household knowledge
+- [ ] Shared vault ingested — `memory_shared` ChromaDB collection populated
+
+---
+
+## TUI Token Management
+
+The TUI is a long-lived terminal process — the access token can expire mid-session. The TUI handles this silently via a token manager module (`tui/auth.py`):
+
+- On startup, loads stored tokens from `~/.jarvis/auth.json` — if the file does not exist, presents the login prompt immediately
+- Calls `GET /profile` immediately after loading tokens (or after any successful login/refresh) to populate `tier` and `assistant_name` in memory
+- Opens the WebSocket connection immediately on startup — not lazily on first message
+- Before every API request, checks `access_expires_at` in `auth.json` — if within 5 minutes of expiry, calls the `/auth/refresh` endpoint automatically
+- On successful refresh, writes the new access token and updated `access_expires_at` back to `~/.jarvis/auth.json`
+- If the server returns 401 (token version mismatch), triggers silent refresh immediately
+- If the refresh token is also expired or revoked, presents the login prompt
+- On receipt of a `profile` WebSocket frame, calls `GET /profile` and updates the in-memory cache — this is how assistant name and tier changes propagate to active sessions
+- If the WebSocket connection drops (network blip, server restart), the TUI reconnects automatically
+- On logout (or forced logout via token version mismatch with no valid refresh), `tui/auth.py` immediately closes the WebSocket, deletes `~/.jarvis/auth.json` from disk, clears all data panels (chat history, tasks, memory — no previously seen data remains visible), and returns the user to the login prompt — it does not wait for a subsequent request or message to fail
+- The user never sees an interruption during normal use
+
+`~/.jarvis/auth.json` is chmod 600 and listed in `.gitignore`.
+
+**`~/.jarvis/auth.json` schema:**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "access_expires_at": "2026-04-10T14:00:00Z"
+}
+```
+
+`access_expires_at` is an ISO 8601 UTC timestamp. The TUI checks this directly — no JWT decoding required to determine whether refresh is needed.
 
 ---
 
@@ -141,6 +201,7 @@
 | 2026-04-21 (6) | WebSocket logs now show client hostname and IP (Tailscale MagicDNS reverse lookup) |
 | 2026-04-21 (7) | SSH configured — nomadbaker→pearlybaker key auth, password auth disabled on pearlybaker, SSH config added on nomadbaker |
 | 2026-04-22 (1) | Spec additions — "Augment, don't replace" core principle, Code of Ethics section, constitutional check node, truncate/retract frame types; jarvis-ideas.md created; spec Future Work section trimmed |
-| 2026-04-23 (1) | Spec reorganised — jarvis-spec.md split into spec/ (12 files: north-star, architecture, auth, api, ai, memory, deployment, server, testing, phases, structure, ideas). server-specs.md → spec/server.md, jarvis-ideas.md → spec/ideas.md, jarvis-spec.md deleted. CLAUDE.md updated — spec pointer and stale directory tree removed. |
-| 2026-04-23 (2) | Full spec audit — 11 issues resolved. PLANNER + ORCHESTRATOR added to checklists. tier_gate redesigned as list[str] with ORCHESTRATOR pre-blocking. active_project moved to message envelope. CONSTITUTIONAL owns truncate + retract, signals chat.py. spec/improvement.md created — persistent improve.jsonl with 10 event types for fine-tuning. Maintenance split into light/heavy tiers, activity-gated via ConnectedClient.last_activity. Per-node model keys added. History write ordered before done frame. Client frame dispatch clarified. |
-| 2026-04-24 (1) | Second spec audit — 13 issues resolved across codebase and spec. depth-1 buffer + token streaming rewritten in chat.py. step_response/assembled_response rename. RESPONDER confirmed as sole token source (agent nodes silent). CONSTITUTIONAL token buffer fully specced (asyncio.Queue + violation_event + truncate/retract correction graph pattern). SKILLS node architecture added — skill_name on Step, models.skills config key, stub node, graph wiring notes. history_edit WebSocket frame specced, removed from improve log. message_id added to JarvisState. ConnectedClient.last_activity added. Per-node model keys expanded. Missing config sections added (idle_threshold, improve log, admin contact, tier_gate_messages). |
+| 2026-04-23 (1) | Spec reorganised — jarvis-spec.md split into spec/ (12 files). CLAUDE.md updated. |
+| 2026-04-23 (2) | Full spec audit — 11 issues resolved. PLANNER + ORCHESTRATOR added. tier_gate redesigned. |
+| 2026-04-24 (1) | Second spec audit — 13 issues resolved. CONSTITUTIONAL fully specced. SKILLS node architecture added. |
+| 2026-04-27 (1) | Project reframed — Mk1/Mk2/Mk3 replacing phases. Mk1 = family product by summer 2026. SYSTEM, CODE, CONSTITUTIONAL, SKILLS, tier gating moved to Mk2. spec/phases.md, jarvis-dev-context.md, CLAUDE.md updated. |

@@ -2,10 +2,10 @@
 > **Session start:** Read `CLAUDE.md` (this file) and `jarvis-dev-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-PLANNER node — read spec/ai.md PLANNER section before starting
+Mk1 — remaining nodes. Read spec/phases.md Mk1 section before starting.
 
 ## Session Rules
-- Commit and push after every completed bulletpoint on the phase checklist.
+- Commit and push after every completed bulletpoint on the Mk1 checklist.
 - For feature additions and architecture skeleton changes: verify against spec exit criteria and update these files before moving on. For pure data layer boilerplate: comprehension check is sufficient — integration verification comes with the next meaningful piece.
 - Never add `Co-Authored-By: Claude` or any Claude attribution to commit messages.
 - At the end of every session: update `CLAUDE.md` (Current Task) and `jarvis-dev-context.md` (tick completed checklist items, add session log entry). Commit and push these updates so the next session starts with accurate context.
@@ -32,7 +32,7 @@ PLANNER node — read spec/ai.md PLANNER section before starting
 - All data operations scoped to `user_id` — no global queries
 - Model names always from `config.yaml` via `config.py` — never hardcoded
 - Secrets via env vars only — `JARVIS_SECRET_KEY` hard-fails if unset
-- One branch per phase — merge to main only when complete and verified
+- One branch per Mk — merge to main only when complete and verified
 - Write tests alongside implementation — never defer
 - Comment the why, not the what
 
@@ -66,5 +66,5 @@ Client sends:
 
 ## What Does Not Exist Yet
 - ntfy — not running yet
-- Docker / containerisation — Phase 6
+- Docker / containerisation — Mk1 server deployment
 - Gitea — once home server is built

@@ -41,7 +41,8 @@
 │   │   ├── code.py          # Coding — calls tools/llm.py, tools/sandbox.py, tools/vault.py
 │   │   ├── web.py           # Web search — calls tools/search.py
 │   │   ├── system.py        # Shell execution — calls tools/shell.py, interrupt/confirm before every command, stdout+stderr both passed to Ollama for formatting
-│   │   └── responder.py     # Pure formatter — checks error field, formats for client_type, derives and sets refresh list on state. Never an agent node. Graph ends here.
+│   │   ├── skills.py        # Phase 3: stub — returns "no skills available". Phase 8: executes approved skills from registry. ROUTER never produces intent "skill" in Phase 3.
+│   │   └── responder.py     # Pure formatter — checks error field, tier-aware formatting, derives and sets refresh list on state. Never an agent node. Graph ends here.
 │   └── coding_team/         # Subgraph — architecture TBD in planning session
 │       ├── subgraph.py
 │       ├── architect.py

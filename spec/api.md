@@ -184,7 +184,7 @@ Interrupt responses (`type` field present):
 FastAPI dispatches on the presence of `type`:
 - No `type` → regular message, processed normally
 - `confirm` / `cancel` → interrupt response, routes to `graph.resume()`
-- `history_edit` → edit-and-retry: `chat.py` deletes all history entries from `delete_from_entry_id` onwards (inclusive), then processes `content` as a fresh message. No improve log event — too ambiguous to be a reliable training signal (typo fixes and genuine retries are indistinguishable).
+- `history_edit` → edit-and-retry: `chat.py` deletes all history entries from `delete_from_entry_id` onwards (inclusive), then processes `content` as a fresh message. No improve log event — too ambiguous to be a reliable training signal (typo fixes and genuine retries are indistinguishable). **Note: the client-side mechanism for obtaining `entry_id` values is an open design question — the server-side `delete_from(user_id, entry_id)` is ready, but `history_edit` is not implementable until the client has a way to learn entry IDs. To be designed in Mk2 when inline editing UX is built.**
 
 ```json
 {"type": "history_edit", "message_id": "abc123", "delete_from_entry_id": 142, "content": "actually, explain the tradeoffs between X and Y"}

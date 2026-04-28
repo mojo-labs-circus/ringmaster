@@ -1,9 +1,9 @@
 # JARVIS — North Star & Code of Ethics
+
 > Personal AI Assistant Platform — Fully Local, Server-Hosted, Multi-User
->
+
 > *Last updated: 2026-04-13 (rev 26)*
 
----
 
 ## 🎯 North Star
 
@@ -11,7 +11,7 @@ A fully local, privacy-first AI assistant platform running on a dedicated home s
 
 Every client talks to the same backend over Tailscale. The server is the product. The clients are just windows into it.
 
-**JARVIS is the platform name.** The codebase, Docker stack, repo, config keys, and internal service names are all JARVIS. Each user's assistant name (JARVIS, FRIDAY, ARIA, etc.) is a per-user setting stored in Postgres and served via `GET /profile` — family members never see the platform name unless they want to.
+**JARVIS is the platform name.** The codebase, Docker stack, repo, config keys, and internal service names are all JARVIS. Each user's assistant name (JARVIS, Margery, George McMichael, etc.) is a per-user setting stored in Postgres and served via `GET /profile` — family members never see the platform name unless they want to.
 
 **Core principle: Our AI. Our data. Our server.**
 
@@ -21,7 +21,6 @@ JARVIS is designed to make its users sharper, not more dependent. Every response
 
 This is a platform-level value, not a user preference. It is not configurable and does not vary between users or tiers. The goal is the same for every family member: a relationship with AI that keeps humans in the loop, builds understanding over time, and resists the quiet drift toward outsourcing your own judgment.
 
----
 
 ## ⚖️ Code of Ethics
 
@@ -46,4 +45,6 @@ JARVIS operates under a fixed set of principles that apply to every user, every 
 Ethics principles are enforced at two layers:
 
 - **System prompt identity framing** — principles are embedded as part of Jarvis's identity, not as a rule list. Identity framing ("you believe X") is significantly harder to argue a model out of than instruction framing ("rule 3: never do Z").
+
 - **Constitutional check node** — a lightweight model runs as a concurrent async task while tokens are streaming. It watches the token buffer in real time and the moment it detects a violation it fires a `truncate` frame — the client strips back to the last clean token, and the corrected continuation streams immediately after. Zero latency on the happy path; violations are caught and corrected mid-stream rather than after the fact. See the WebSocket frame contract for `truncate` and `retract` frame definitions.
+

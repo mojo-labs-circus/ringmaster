@@ -74,7 +74,8 @@ This applies to every node that writes `status_message`. Examples per tier for a
 ```python
 class Step(TypedDict):
     id: str            # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
-    intent: str        # the node to dispatch to — "tasks" | "memory" | "code" | "web" | "system" | "conversation"
+    intent: str        # the node to dispatch to — "tasks" | "memory" | "code" | "web" | "system" | "conversation" | "skill"
+    skill_name: str | None  # populated by ROUTER for skill steps in Phase 8 — registry name of the skill to invoke. None for all other intent types.
     description: str   # plain-language description of this step, used in tier-aware status messages
     depends_on: list[str]  # IDs of steps that must succeed before this one runs. Empty list = no dependencies.
 
@@ -96,6 +97,7 @@ class JarvisState(TypedDict):
     tier: str                       # "admin" | "power" | "standard" — populated by FastAPI from live DB record
     client_type: str                # "tui" | "web" | "mobile"
     assistant_name: str             # per-user, populated by FastAPI from live DB record; client fetches via GET /profile and caches locally
+    message_id: str                 # from the client message envelope — forwarded by FastAPI at invocation start. Used by chat.py for all frame building (token, done, error, status, confirm_request, truncate, retract) and by graph nodes that write improvement log events.
 
     # Conversation
     messages: list[dict]            # history loaded from repository + current_input appended by FastAPI.
@@ -151,6 +153,9 @@ class JarvisState(TypedDict):
 
     # Refresh signals
     refresh: list[str]              # populated by RESPONDER only — read by FastAPI to build done frame. Zero-initialised to [] by FastAPI.
+
+    # Constitutional correction (set by chat.py on re-invocation only)
+    correction: dict | None         # {clean_prefix, violation, principle} — set by chat.py when CONSTITUTIONAL fires a correction re-invocation. A conditional START edge routes directly to RESPONDER when set. Zero-initialised to None on all normal invocations. Never written by any graph node.
 ```
 
 **FastAPI is responsible for constructing the full initial state dict before every invocation. All fields are required — node-populated fields are zero-initialised (`""`, `False`, `None`, `[]` as appropriate). No field is ever left absent.**

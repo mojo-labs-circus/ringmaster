@@ -2,7 +2,7 @@
 > **Session start:** Read `CLAUDE.md` (this file) and `jarvis-dev-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-Mk1 — remaining nodes. Read spec/phases.md Mk1 section before starting.
+Mk1 — ROUTER node. Architecture decisions locked this session (see session log 2026-04-28). Next step: write ROUTER pseudocode, then implement. Read spec/ai.md ROUTER and tools/memory.py sections before starting.
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the Mk1 checklist.

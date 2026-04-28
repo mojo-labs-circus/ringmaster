@@ -48,7 +48,7 @@ Model names are never hardcoded. All assignments are read from `config.yaml` via
 
 ## 🤖 Agent Nodes (LangGraph)
 
-Every node receives a `JarvisState` that includes `user_id`, `tier`, `client_type`, `assistant_name`, and conversation history loaded from the repository. All data operations are scoped to the requesting user via repository interfaces. Nodes never touch raw storage directly and never touch another user's data.
+Every node receives a `JarvisState` that includes `user_id`, `tier`, `client_type`, and `assistant_name`. Conversation history is not pre-loaded into state — nodes that need it call `tools/history.py` directly with the limit appropriate for their role. All data operations are scoped to the requesting user via repository interfaces. Nodes never touch raw storage directly and never touch another user's data.
 
 All agent nodes call `should_retrieve()` before their LLM call — whether retrieval actually happens is decided at runtime based on the current `active_step_prompt`. The contract is in `tools/memory.py`. The only exception is MEMORY itself — explicit memory intent always retrieves, so it calls `retrieve_context()` directly without the gate. Coordination and formatting nodes (ROUTER, PLANNER, DECOMPOSER, ORCHESTRATOR, RESPONDER) do not retrieve memory.
 
@@ -99,9 +99,6 @@ class JarvisState(TypedDict):
     message_id: str                 # from the client message envelope — forwarded by FastAPI at invocation start. Used by chat.py for all frame building (token, done, error, status, confirm_request, truncate, retract) and by graph nodes that write improvement log events.
 
     # Conversation
-    messages: list[dict]            # history loaded from repository + current_input appended by FastAPI.
-                                    # Each dict is {"role": str, "content": str}. Agent nodes pass this
-                                    # directly to Ollama — no manipulation required.
     current_input: str              # the message the user just sent — populated by FastAPI at invocation
     engineered_message: str         # written by PROMPT_ENGINEER — cleaned, expanded version of current_input. All downstream nodes use this instead of current_input as their primary task framing. Zero-initialised to "" by FastAPI.
 
@@ -158,12 +155,13 @@ class JarvisState(TypedDict):
 **FastAPI is responsible for constructing the full initial state dict before every invocation. All fields are required — node-populated fields are zero-initialised (`""`, `False`, `None`, `[]` as appropriate). No field is ever left absent.**
 
 ### PROMPT_ENGINEER
-- Model: `models.prompt_engineer` — general model; rewriting requires natural language quality, not just classification speed
+- Model: `models.prompt_engineer` — general model; normalization requires natural language quality, not just classification speed
 - Runs before ROUTER — the first node every message touches
-- Reads `current_input`, writes `engineered_message`
-- What it does: expands abbreviations and shorthand ("tmr" → "tomorrow", "hw" → "homework"), resolves implicit references where prior `messages` make them clear, restructures fragmented or incomplete sentences into well-formed prompts, adds implied context so downstream nodes classify and act correctly
+- Reads `current_input` only — no history context needed
+- Writes `engineered_message`
+- What it does: corrects typos and grammar, normalises informal or colloquial vocabulary into phrasing LLMs handle well ("wha i have goin on tmr" → "What do I have going on tomorrow?"), restructures fragmented or incomplete sentences into well-formed prompts. Does not resolve implicit references or add cross-turn context — agent nodes have full `messages` history and handle that themselves.
 - Output is always a single message — not a structured object, not a plan
-- The user never sees `engineered_message`. `current_input` is stored to history and ChromaDB short-term unchanged. The consolidation pass (dream mode) cleans up stored originals long-term. Retrieval queries are always clean because PROMPT_ENGINEER runs before anything else.
+- The user never sees `engineered_message`. `current_input` is stored to history and ChromaDB short-term unchanged. Retrieval queries are always clean because PROMPT_ENGINEER runs before anything else.
 - Single model call — the rewrite prompt instructs the model to output the improved message only, no explanation or wrapping
 - **Failure handling:** if inference fails or times out, writes `current_input` directly to `engineered_message` (pass-through) and logs at `WARNING` level. Does not set `error` — the rest of the graph continues on the original. A degraded rewrite is never a hard failure.
 - Status messages are suppressed for this node by default — the rewrite is invisible to the user. Admin tier sees `"Rewriting message via PROMPT_ENGINEER..."` if `STATUS_MESSAGES["prompt_engineer"]` is set.
@@ -171,6 +169,7 @@ class JarvisState(TypedDict):
 ### ROUTER
 - Model: `mistral:7b`
 - Intentionally thin — classify intent, discover skills, check tier. Nothing else.
+- Calls `get_history(user_id, limit=config.history_limits.router)` — small window, enough to resolve implicit references in the current message for accurate classification. Does not retrieve from the vault.
 - Classifies every input into one or more intents: `memory | tasks | web | conversation` (Mk1). `code`, `system`, and `skill` added in Mk2 when those nodes are built.
 - Reads the approved skills registry (personal: `{vault_base}/{user_id}/02-skills/approved/`, shared: `{skills.shared_approved_path}`) — checks whether the directory exists before reading, graceful no-op if absent. Includes skill names and descriptions in the classification prompt so the model can match user intent to a named skill. If a match is found, adds `"skill"` to `intent` and writes matched skill name(s) to `pending_skills` on state. Mk1: no skills exist yet, `pending_skills` always `[]`.
 - Checks user tier — if a Standard user's message includes a tier-gated intent, ROUTER leaves `intent` unchanged and appends the gated intent name(s) to `tier_gate` on state. PLANNER plans all steps including blocked ones. ORCHESTRATOR handles blocking at dispatch time. `tier_gate` always `[]` in Mk1.
@@ -209,8 +208,9 @@ class MemoryResult:
     success: bool  # False = ChromaDB unavailable. True = ChromaDB worked (context may still be empty).
 ```
 
-**`should_retrieve(messages, user_id, message_id) -> bool`**
+**`should_retrieve(history: list[dict], user_id: str, message_id: str) -> bool`**
 - Lightweight yes/no LLM call using `models.memory_check` (`mistral:7b`) — a fast always-loaded model dedicated to this binary classification task
+- Takes the history the calling node already fetched via `tools/history.py` — does not make its own DB call
 - Asks: given this conversation, does answering accurately require looking up stored memories?
 - On inference failure: returns `False` (conservative default — proceed without context rather than blocking)
 
@@ -224,12 +224,40 @@ class MemoryResult:
 
 **Node usage pattern:**
 
-Each agent node that may need memory calls `should_retrieve()` first. If `True`, calls `retrieve_context()`. If `result.success is False`, the node:
+Every agent node follows this sequence:
+1. Call `get_history(user_id, limit=config.history_limits.<node>)` — fetch conversational context
+2. Pass that history directly into `should_retrieve(history, user_id, message_id)` — same object, no second fetch
+3. If `True`, call `retrieve_context()` for vault context
+
+`should_retrieve` sees exactly the history the node is working with — no more, no less. If `result.success is False`, the node:
 - Writes a tier-aware `status_message`: Admin: `"ChromaDB unavailable — continuing without memory context"`, Power: `"Couldn't access your memories — response may lack context"`, Standard: `"I couldn't access my memory for this — my response may be incomplete"`
 - Calls `notify_admin("chromadb_unavailable", ...)`
 - Continues with empty context
 
 `memory/persist.py` is a separate async background task fired by FastAPI after every successful exchange — unchanged by this design.
+
+### `tools/history.py`
+
+Not a graph node — a shared tool imported and called directly by nodes that need conversational context. History is never pre-loaded into state; nodes opt in by calling this tool.
+
+**`get_history(user_id: str, limit: int) -> list[dict]`**
+- Returns the last `limit` turns of conversation history for `user_id`, ordered oldest-first
+- Each dict is `{"role": str, "content": str}` — ready to pass directly to Ollama
+- Returns an empty list if no history exists — not an error
+- **Failure handling:** on DB error, returns an empty list and logs at `WARNING` level — never blocks the calling node
+
+**Limits by node** — configured in `config.yaml` under `history_limits`:
+
+| Node | Default limit | Reason |
+|---|---|---|
+| ROUTER | 5 | Enough to resolve implicit references for classification — not a dialogue node |
+| CONVERSATION | 20 | Dialogue node — needs substantial thread for coherent responses |
+| TASKS | 10 | Enough to understand task context without full history |
+| MEMORY | 10 | Query context for retrieval and management operations |
+| WEB | 5 | Query clarification only |
+| CODE | 10 | Enough to understand the coding task in context |
+
+Coordination and formatting nodes (PLANNER, DECOMPOSER, ORCHESTRATOR, RESPONDER) do not call `get_history` — they operate on message structure, not content. PROMPT_ENGINEER does not call `get_history` — it normalises `current_input` as a standalone, context-free operation.
 
 ### ORCHESTRATOR
 - Executes the `StepPlan` from state reactively — one step at a time, result of each step informs the next
@@ -261,7 +289,7 @@ PROMPT_ENGINEER runs first on every message — it rewrites `current_input` into
 ### CONVERSATION
 - The default node for general chat — the most-used node for Standard tier users
 - Model: `llama3.1:8b`
-- Calls Ollama with `messages` and retrieved context (if any) — writes result to `step_response`
+- Calls `get_history(user_id, limit=config.history_limits.conversation)`, then calls `should_retrieve()` and optionally `retrieve_context()`. Passes history and retrieved context (if any) to Ollama — writes result to `step_response`
 - Available to all tiers
 - No node-entry status frame by default (`STATUS_MESSAGES["conversation"]` is empty) — tokens stream directly
 

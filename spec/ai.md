@@ -31,7 +31,9 @@ Model names are never hardcoded. All assignments are read from `config.yaml` via
 |---|---|---|---|
 | Intent routing / classification | `mistral:7b` | `mistral:7b` | `qwen2.5:3b` |
 | General conversation | `llama3.1:8b` | `qwen2.5:14b` | `qwen2.5:3b` |
+| Prompt rewriting (PROMPT_ENGINEER node) | `llama3.1:8b` | `qwen2.5:14b` | `qwen2.5:3b` |
 | Planning / dependency inference (PLANNER node) | TBD — 32B reasoning model | `qwen2.5:14b` | `qwen2.5:3b` |
+| Step decomposition (DECOMPOSER node) | `llama3.1:8b` | `qwen2.5:14b` | `qwen2.5:3b` |
 | Reasoning / coding (CODE node) | `deepseek-r1:14b` | `deepseek-coder-v2:16b` | `qwen2.5:3b` |
 | Constitutional check (ethics monitor) | `mistral:7b` | `mistral:7b` | `qwen2.5:3b` |
 | Embeddings (memory ingest + retrieval) | `nomic-embed-text` | `nomic-embed-text` | `nomic-embed-text` |
@@ -39,13 +41,7 @@ Model names are never hardcoded. All assignments are read from `config.yaml` via
 | Fallback (primary model failure) | `mistral:7b` | `mistral:7b` | `qwen2.5:3b` |
 
 **Rules:**
-- Every node has its own model key in `config.yaml` — `router`, `planner`, `conversation`, `tasks`, `memory`, `web`, `system`, `responder`, `code`, `constitutional`, `embedding`, `fallback`. Most nodes default to the same general model but each is independently overridable — swap one key to point a node at a fine-tuned variant without touching code.
-- ROUTER always uses `models.router` — never the general model
-- PLANNER always uses `models.planner` — never the general model
-- CODE always uses `models.code` — never the general model
-- CONSTITUTIONAL always uses `models.constitutional`
-- Embeddings always use `models.embedding` (`nomic-embed-text`) on all machines — no stand-in
-- On nomadbaker, `qwen2.5:3b` fills all roles — expect degraded output quality, this is normal for a dev stand-in
+- Every node has its own model key in `config.yaml`, named after the node. Most default to the general model but each is independently overridable — swap one key to point a node at a fine-tuned variant without touching code.
 - Model assignments upgrade via `config.yaml` only — no code changes needed as hardware improves or fine-tuned variants are introduced
 
 ---
@@ -53,6 +49,8 @@ Model names are never hardcoded. All assignments are read from `config.yaml` via
 ## 🤖 Agent Nodes (LangGraph)
 
 Every node receives a `JarvisState` that includes `user_id`, `tier`, `client_type`, `assistant_name`, and conversation history loaded from the repository. All data operations are scoped to the requesting user via repository interfaces. Nodes never touch raw storage directly and never touch another user's data.
+
+All agent nodes call `should_retrieve()` before their LLM call — whether retrieval actually happens is decided at runtime based on the current `active_step_prompt`. The contract is in `tools/memory.py`. The only exception is MEMORY itself — explicit memory intent always retrieves, so it calls `retrieve_context()` directly without the gate. Coordination and formatting nodes (ROUTER, PLANNER, DECOMPOSER, ORCHESTRATOR, RESPONDER) do not retrieve memory.
 
 ### Tier-Aware Status Messages
 
@@ -78,6 +76,7 @@ class Step(TypedDict):
     skill_name: str | None  # populated by ROUTER for skill steps in Phase 8 — registry name of the skill to invoke. None for all other intent types.
     description: str   # plain-language description of this step, used in tier-aware status messages
     depends_on: list[str]  # IDs of steps that must succeed before this one runs. Empty list = no dependencies.
+    prompt: str            # written by DECOMPOSER — focused sub-prompt for this step's agent node, derived from engineered_message. ORCHESTRATOR writes this to active_step_prompt on state before dispatch.
 
 
 class StepResult(TypedDict):
@@ -104,6 +103,7 @@ class JarvisState(TypedDict):
                                     # Each dict is {"role": str, "content": str}. Agent nodes pass this
                                     # directly to Ollama — no manipulation required.
     current_input: str              # the message the user just sent — populated by FastAPI at invocation
+    engineered_message: str         # written by PROMPT_ENGINEER — cleaned, expanded version of current_input. All downstream nodes use this instead of current_input as their primary task framing. Zero-initialised to "" by FastAPI.
 
     # Project context — per-message, never persisted
     active_project: str | None      # read by FastAPI from each message envelope — optional field, None if absent.
@@ -117,10 +117,16 @@ class JarvisState(TypedDict):
 
     # Routing
     intent: list[str]               # set by ROUTER — one or more intents. Zero-initialised to [] by FastAPI.
-    tier_gate: list[str]            # set by ROUTER — intent names gated for this user's tier. Zero-initialised to [] by FastAPI. Empty in Mk1.
+    tier_gate: list[str]            # set by ROUTER — intent names that were tier-gated for this user (e.g. ["code"]).
+                                    # ROUTER does not remove these from `intent` — PLANNER plans all steps including blocked ones.
+                                    # ORCHESTRATOR pre-blocks any step whose intent appears here before dispatching.
+                                    # Zero-initialised to [] by FastAPI. Empty in Mk1.
     pending_skills: list[str]       # skill names identified by ROUTER — PLANNER reads to create one skill Step per entry. Zero-initialised to [] by FastAPI.
 
     # Output
+    active_step_prompt: str | None  # written by ORCHESTRATOR from current_step.prompt before each dispatch — the focused
+                                    # sub-prompt DECOMPOSER produced for this step. Agent nodes read this as their primary
+                                    # task framing. ORCHESTRATOR clears it after each step. Zero-initialised to None by FastAPI.
     step_response: str              # populated by active agent node — ephemeral per-step scratch field. ORCHESTRATOR reads
                                     # this after each step, saves to step_results, then clears it before the next step.
                                     # Empty by the time RESPONDER runs. Zero-initialised to "" by FastAPI.
@@ -133,12 +139,6 @@ class JarvisState(TypedDict):
 
     # Error handling
     error: str | None               # set by any node on expected failure, checked by RESPONDER. Zero-initialised to None by FastAPI.
-
-    # Tier gate
-    tier_gate: list[str]            # set by ROUTER — list of intent names that were tier-gated for this user (e.g. ["code"]).
-                                    # ROUTER does not remove these from `intent` — PLANNER plans all steps including blocked ones.
-                                    # ORCHESTRATOR pre-blocks any step whose intent appears here before dispatching.
-                                    # Zero-initialised to [] by FastAPI.
 
     # Interrupt / confirm
     interrupt_payload: dict | None  # written by node before calling interrupt() — FastAPI builds confirm_request frame from this. Zero-initialised to None by FastAPI.
@@ -156,6 +156,17 @@ class JarvisState(TypedDict):
 ```
 
 **FastAPI is responsible for constructing the full initial state dict before every invocation. All fields are required — node-populated fields are zero-initialised (`""`, `False`, `None`, `[]` as appropriate). No field is ever left absent.**
+
+### PROMPT_ENGINEER
+- Model: `models.prompt_engineer` — general model; rewriting requires natural language quality, not just classification speed
+- Runs before ROUTER — the first node every message touches
+- Reads `current_input`, writes `engineered_message`
+- What it does: expands abbreviations and shorthand ("tmr" → "tomorrow", "hw" → "homework"), resolves implicit references where prior `messages` make them clear, restructures fragmented or incomplete sentences into well-formed prompts, adds implied context so downstream nodes classify and act correctly
+- Output is always a single message — not a structured object, not a plan
+- The user never sees `engineered_message`. `current_input` is stored to history and ChromaDB short-term unchanged. The consolidation pass (dream mode) cleans up stored originals long-term. Retrieval queries are always clean because PROMPT_ENGINEER runs before anything else.
+- Single model call — the rewrite prompt instructs the model to output the improved message only, no explanation or wrapping
+- **Failure handling:** if inference fails or times out, writes `current_input` directly to `engineered_message` (pass-through) and logs at `WARNING` level. Does not set `error` — the rest of the graph continues on the original. A degraded rewrite is never a hard failure.
+- Status messages are suppressed for this node by default — the rewrite is invisible to the user. Admin tier sees `"Rewriting message via PROMPT_ENGINEER..."` if `STATUS_MESSAGES["prompt_engineer"]` is set.
 
 ### ROUTER
 - Model: `mistral:7b`
@@ -175,6 +186,16 @@ class JarvisState(TypedDict):
 - Dependency inference is the key responsibility — PLANNER determines which steps are independent and which must wait on others based on semantic reasoning about the user's message
 - On PLANNER failure: sets `error` on state — graph routes immediately to RESPONDER per the universal error routing rule
 - Node-entry status frame sent by FastAPI if `STATUS_MESSAGES["planner"]` is set
+
+### DECOMPOSER
+- Model: `models.decomposer` — general model; crafting focused sub-prompts requires language quality, not heavy reasoning (the hard reasoning was done by PLANNER)
+- Runs after PLANNER, before ORCHESTRATOR
+- Reads `engineered_message` and `step_plan` from state; writes a `prompt: str` to each `Step` in `step_plan`
+- Each sub-prompt is self-contained: the relevant slice of the task, the step's specific intent, and any cross-step context needed to avoid ambiguity. Agent nodes receive only what they need — no noise from unrelated steps.
+- ORCHESTRATOR writes `current_step.prompt` to `active_step_prompt` on state before dispatching each step. Agent nodes read `active_step_prompt` as their primary task framing.
+- Single-step plans: DECOMPOSER still runs; the sub-prompt is trivially derived from `engineered_message`. Near-instant overhead.
+- **Failure handling:** sets `error` on state — graph routes immediately to RESPONDER per the universal error routing rule
+- Node-entry status frame sent by FastAPI if `STATUS_MESSAGES["decomposer"]` is set
 
 ### `tools/memory.py`
 
@@ -208,8 +229,6 @@ Each agent node that may need memory calls `should_retrieve()` first. If `True`,
 - Calls `notify_admin("chromadb_unavailable", ...)`
 - Continues with empty context
 
-The MEMORY node (explicit queries like "what do you remember about me?") always calls `retrieve_context()` directly without `should_retrieve()` — explicit memory intent always requires retrieval.
-
 `memory/persist.py` is a separate async background task fired by FastAPI after every successful exchange — unchanged by this design.
 
 ### ORCHESTRATOR
@@ -217,10 +236,10 @@ The MEMORY node (explicit queries like "what do you remember about me?") always 
 - Each iteration:
   1. Find all steps whose `depends_on` are fully satisfied (all named steps completed successfully)
   2. **Tier-gate check:** if the step's `intent` appears in `state.tier_gate`, immediately write a `StepResult` with `status: "blocked"`, `blocked_by: None`, `reason: "tier_gate:{intent}"` — do not dispatch to the agent node
-  3. Execute the next ready step by dispatching to the appropriate agent node
+  3. Write `current_step.prompt` to `active_step_prompt` on state, then dispatch to the appropriate agent node. Agent nodes read `active_step_prompt` as their primary task framing.
   4. After the agent node completes, save `step_response` into `step_results` before looping
   5. Mark the step `success` or `failure` based on whether `error` was set on state
-  6. Clear `error` and `step_response` on state before the next iteration
+  6. Clear `error`, `step_response`, and `active_step_prompt` on state before the next iteration
 - A failed or tier-gated step marks all steps with `depends_on` pointing to it as `blocked` — they are skipped
 - Independent steps (no `depends_on` pointing to a failed or tier-gated step) always run regardless of other step outcomes
 - Loops until no ready or pending steps remain, then routes to RESPONDER
@@ -234,15 +253,14 @@ The MEMORY node (explicit queries like "what do you remember about me?") always 
 ### Graph Flow
 
 ```
-ROUTER → PLANNER → ORCHESTRATOR → [agent node] → ORCHESTRATOR → ... → RESPONDER
+PROMPT_ENGINEER → ROUTER → PLANNER → DECOMPOSER → ORCHESTRATOR → [agent node] → ORCHESTRATOR → ... → RESPONDER
 ```
 
-ORCHESTRATOR loops back through agent nodes until the `StepPlan` is exhausted. Agent nodes call `tools/memory.py` internally when they determine retrieval is needed — there is no separate MEMORY_RETRIEVE graph node. The graph ends at RESPONDER — it is always a pure formatter, never an agent node. After the graph completes, FastAPI sends the `done` frame and then fires `memory/persist.py` as an asyncio background task unconditionally after every exchange.
+PROMPT_ENGINEER runs first on every message — it rewrites `current_input` into `engineered_message` before ROUTER ever sees it. DECOMPOSER runs after PLANNER and writes a focused sub-prompt to each `Step` — ORCHESTRATOR passes `active_step_prompt` to each agent node at dispatch time. ORCHESTRATOR loops back through agent nodes until the `StepPlan` is exhausted. Agent nodes call `tools/memory.py` internally when they determine retrieval is needed — there is no separate MEMORY_RETRIEVE graph node. The graph ends at RESPONDER — it is always a pure formatter, never an agent node. After the graph completes, FastAPI sends the `done` frame and then fires `memory/persist.py` as an asyncio background task unconditionally after every exchange.
 
 ### CONVERSATION
 - The default node for general chat — the most-used node for Standard tier users
 - Model: `llama3.1:8b`
-- Calls `tools/memory.py` `should_retrieve()` first — if `True`, calls `retrieve_context()` and includes the result in the Ollama prompt. If `result.success is False`, writes a tier-aware `status_message` and continues without context.
 - Calls Ollama with `messages` and retrieved context (if any) — writes result to `step_response`
 - Available to all tiers
 - No node-entry status frame by default (`STATUS_MESSAGES["conversation"]` is empty) — tokens stream directly
@@ -263,7 +281,6 @@ ORCHESTRATOR loops back through agent nodes until the `StepPlan` is exhausted. A
 - Operations: create, update, complete, list, delete
 - Task status values: `open | closed`
 - Task priority values: `low | medium | high`
-- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - Dev backend: SQLite (same interface, selected via `JARVIS_DB_BACKEND` env var)
 - No node-entry status frame by default (`STATUS_MESSAGES["tasks"]` is empty) — writes a specific `status_message` immediately before each operation (before insert, before query, before update, before delete) so the message is accurate for both reads and mutations. The message content is tier-aware: Admin sees technical detail (e.g. "Inserting task into `tasks` via SQLiteTaskRepository..."), Power sees operational detail (e.g. "Adding your task..."), Standard sees plain language (e.g. "Adding task...")
 - Delete operations use the interrupt/confirm pattern — node identifies the task, writes it to `interrupt_payload`, user confirms before the delete executes. On cancel, writes a hardcoded cancellation message to `step_response`, no further action taken.
@@ -293,7 +310,6 @@ All task mutations other than deletion go through the WebSocket chat interface. 
 - Model: `deepseek-r1:14b`
 - Operations: generate, explain, review, debug, refactor
 - Aware of active project context — reads relevant files and notes from the user's vault under `03-projects/<project>/`, including recent code, architecture notes, and open questions. `[pearlybaker only]` — graceful no-op on nomadbaker where the vault is unavailable.
-- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - Can execute code via sandboxed subprocess — uses `tools/sandbox.py`
 - No node-entry status frame by default (`STATUS_MESSAGES["code"]` is empty) — writes granular `status_message` updates throughout execution. Content is tier-aware (Admin: full detail including model name and reasoning stage, e.g. `"Reasoning with deepseek-r1:14b — analysing traceback..."`, Power: `"Analysing the problem..."`, Standard: n/a — Standard tier cannot reach CODE)
 - **Phase 3: single-agent only** — uses `deepseek-r1:14b` directly, no subgraph
@@ -340,7 +356,6 @@ loop (configurable max) or surface to user for a decision
 - Scraping: Playwright (headless) via `tools/search.py`
 - Returns summarised results, not raw HTML
 - Available to all tiers
-- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["web"]` is set — WEB itself does not send frames
 - Writes specific `status_message` updates mid-execution — the query currently being searched. Content is tier-aware (Admin: `"Querying DuckDuckGo: '{query}'..."`, Power: `"Searching the web for '{query}'..."`, Standard: `"Searching the web..."`)
 
@@ -348,7 +363,6 @@ loop (configurable max) or surface to user for a decision
 - Shell command execution and file operations: read, write, move, search
 - Sandboxed to approved paths (defined in `config.yaml` under `system.allowed_paths`) — enforced by `tools/shell.py`
 - Admin and Power tier only
-- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - No node-entry status frame by default (`STATUS_MESSAGES["system"]` is empty) — writes two `status_message` updates per command: one before calling `interrupt()` while composing the shell command ("Composing command..."), one immediately after the user confirms and before the command executes ("Executing..."). Content for both is tier-aware — see execution sequence below.
 - **Execution sequence:** (1) SYSTEM writes a `status_message` — "Composing command..." (tier-aware: Admin: `"Translating request into shell command via tools/llm.py..."`, Power: `"Working out the command..."`, Standard: n/a) — then calls Ollama to translate the natural language request into a concrete shell command. This inference is internal and not streamed as `token` frames. (2) SYSTEM writes the command to `interrupt_payload` and calls `interrupt()`. (3) FastAPI sends `confirm_request` frame — client disables input and renders a confirmation prompt (e.g. a popup with confirm/cancel). Pre-interrupt phase is otherwise silent from a `status_message` perspective — the `confirm_request` frame handles all pre-execution communication. (4) If confirmed, SYSTEM writes a `status_message` immediately before execution — "Executing now..." (tier-aware: Admin: `"Executing: '{command}' via tools/shell.py..."`, Power: `"Running command: '{command}'..."`, Standard: n/a) — then the command executes via `tools/shell.py`. If cancelled, SYSTEM writes a hardcoded cancellation message to `step_response` — no further Ollama call.
 - **After confirmed execution:** `tools/shell.py` captures stdout and stderr separately. SYSTEM passes both to Ollama to format and summarise into `step_response` — the response includes context about what came from each channel, with tier-appropriate detail (Admin sees which output came from stdout vs stderr; Standard gets a plain language summary of what happened). Four distinct outcomes: (a) stdout and/or stderr present → Ollama formats both into `step_response`; (b) both empty, exit code 0 → hardcoded "Done. `<command>` completed successfully.", no Ollama call; (c) both empty, non-zero exit code → hardcoded "Command failed with exit code N and produced no output."; (d) `tools/shell.py` itself cannot spawn the subprocess → sets `error` on state, which triggers the universal error routing rule. This last case is the only one that sets `error` — command-level failures (including stderr output) always go through `step_response`.

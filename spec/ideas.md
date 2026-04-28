@@ -52,9 +52,6 @@ The goal: anything Jarvis writes on the user's behalf sounds like they wrote it 
 ### Per-user behavioural config file (CLAUDE.md equivalent)
 Each user gets a personalised instruction file named after their assistant (e.g. `JARVIS.md`). Jarvis builds and maintains it automatically over time — the user never writes it manually. Captures structured behavioural patterns: "when this user starts a new project, always do X, Y, Z" and "at the end of every session, always do A, B, C". Distinct from personality/style (which is about tone and voice) — this is about workflow preferences and session structure. Gets loaded into context at the start of every session, same way CLAUDE.md works here.
 
-### Prompt engineering node
-A node that sits at the very start of the graph — before the router — and silently rewrites the user's raw input into a better-structured prompt optimised for how Jarvis works. The user never sees the rewritten version. The rewritten prompt flows through the rest of the graph as active context. The original message is stored to history and memory — the consolidation pass cleans it up, and the vault only ever holds clean normalised data. Memory retrieval therefore always pulls good data regardless of original phrasing. Mid-session there is no confusion because Jarvis works off the rewritten version throughout; if previous session history re-enters context, the prompt engineer node rewrites it again at the start of each new message anyway.
-
 ### Session recap
 Summarise what happened in a conversation session — decisions made, code written, problems hit, outcomes. Particularly useful for coding sessions. Pulls from conversation history, structures into a clean writeup. If a project is active, optionally saves to vault under `03-projects/<project>/`. Node: SYSTEM or dedicated MEMORY skill.
 

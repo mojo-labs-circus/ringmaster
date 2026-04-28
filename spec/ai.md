@@ -104,13 +104,9 @@ class JarvisState(TypedDict):
 
     # Project context — per-message, never persisted
     active_project: str | None      # read by FastAPI from each message envelope — optional field, None if absent.
-                                    # Client owns this state: user selects a project (web: button, TUI: /project <name>),
-                                    # client stores it and includes it in every subsequent message until changed or cleared.
-                                    # Controls project-scoped ChromaDB filtering in `tools/memory.py` and CODE.
-                                    # Never touches the database. Unrecognised values are passed through — FastAPI does not
-                                    # validate whether the project folder exists. `retrieve_context()` handles this case and
-                                    # returns unfiltered results if no chunks are found for the named project.
-                                    # Zero-initialised to None by FastAPI when absent from the message envelope.
+                                    # Field present in Mk1 so no state rewiring is needed in Mk2.
+                                    # Project-scoped ChromaDB filtering in tools/memory.py is a Mk2 concern —
+                                    # always None in Mk1. Zero-initialised to None by FastAPI.
 
     # Routing
     intent: list[str]               # set by ROUTER — one or more intents. Zero-initialised to [] by FastAPI.
@@ -218,7 +214,7 @@ class MemoryResult:
 - Always queries both `memory_{user_id}` (personal) and `memory_shared` (family)
 - Merges results, deduplicates by chunk ID, takes top-k by score
 - Tags memories: `#note #task #fact #code #person #project`
-- **`active_project` filtering:** if set but no chunks tagged with that project name exist, returns unfiltered results — graceful no-op, not an error
+- **`active_project` filtering:** Mk2 concern — ignored in Mk1 (`active_project` is always `None`). When implemented: if set but no chunks tagged with that project name exist, returns unfiltered results — graceful no-op, not an error
 - **ChromaDB unavailable:** returns `MemoryResult(context="", success=False)`, calls `notify_admin("chromadb_unavailable", ...)`
 - Returns `MemoryResult(context=merged_text, success=True)` on success — `context` may be empty string if nothing relevant found, which is not a failure
 

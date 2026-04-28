@@ -37,8 +37,7 @@
 ### Data Flow (per request)
 1. Client sends message with JWT access token
 2. FastAPI authenticates — validates token, checks `token_version` against database, identifies user, loads their profile and tier
-3. FastAPI loads user's recent conversation history from repository
-4. LangGraph invocation created — `JarvisState` populated with `user_id`, `tier`, `client_type`, `assistant_name`, `current_input`, and conversation history. FastAPI appends `current_input` as the final `{"role": "user", "content": current_input}` entry to `messages` so agent nodes always receive a complete, ready-to-use messages list. All node-populated fields are zero-initialised (`""`, `None`, `[]` as appropriate) — see JarvisState Fields.
+3. FastAPI constructs `JarvisState` — populates identity fields (`user_id`, `tier`, `client_type`, `assistant_name`, `message_id`, `current_input`, `active_project`). All node-populated fields are zero-initialised (`""`, `None`, `[]` as appropriate) — see JarvisState Fields. History is not pre-loaded into state; nodes that need conversational context call `tools/history.py` directly with the limit appropriate for their role.
 5. ROUTER classifies intent — writes `intent`, `tier_gate`, and `pending_skills` to state. Reads the approved skills registry to detect skill intents. Intentionally thin — no memory decisions.
 6. PLANNER produces a `StepPlan` from `intent` and `pending_skills` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
 7. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
@@ -52,9 +51,9 @@
 
 ### Key Architecture Principles
 - **LangGraph is stateless between requests.** It receives all context it needs at invocation start and returns output. It does not own persistence.
-- **FastAPI owns persistence.** Conversation history lives in Postgres. FastAPI loads it before each invocation and writes it back after.
+- **FastAPI owns persistence.** Conversation history lives in Postgres. FastAPI writes each exchange back after the graph completes. Nodes fetch history on demand via `tools/history.py` — history is never pre-loaded into state.
 - **FastAPI owns the WebSocket.** FastAPI sends all frames (`token`, `done`, `error`, `status`). LangGraph nodes never touch the WebSocket — they only transform state.
-- **FastAPI owns state initialisation.** FastAPI constructs the full `JarvisState` before every invocation, including appending `current_input` to `messages`. Nodes never manipulate the messages list directly.
+- **FastAPI owns state initialisation.** FastAPI constructs the full `JarvisState` before every invocation. All node-populated fields are zero-initialised. Nodes never write to identity fields.
 - **The graph ends at RESPONDER.** MEMORY_PERSIST is a FastAPI background task, not a graph node. The graph's job is done the moment RESPONDER writes `assembled_response` to state.
 - **All clients are equal.** All clients connect to FastAPI over Tailscale. No client has a privileged path to LangGraph.
 - **All secrets via environment variables.** Nothing sensitive ever touches `config.yaml` or git. See Secrets section.

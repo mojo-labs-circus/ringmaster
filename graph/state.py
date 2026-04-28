@@ -15,9 +15,10 @@ from typing import TypedDict
 class Step(TypedDict):
     id: str                    # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
     intent: str                # node to dispatch to — "tasks"|"memory"|"code"|"web"|"system"|"conversation"|"skill"
+    skill_name: str | None     # populated by ROUTER for skill steps — registry name of the skill to invoke. None for all other intent types.
     description: str           # neutral plain-language label — ORCHESTRATOR uses this as raw material for tier-aware status messages
     depends_on: list[str]      # IDs of steps that must succeed first. Empty list = no dependencies.
-    skill_name: str | None     # populated by PLANNER when intent is "skill" — name of the skill to look up in the registry. None for all built-in intents.
+    prompt: str                # written by DECOMPOSER — focused sub-prompt for this step's agent node. ORCHESTRATOR copies to active_step_prompt before dispatch.
 
 
 class StepResult(TypedDict):
@@ -37,29 +38,35 @@ class JarvisState(TypedDict):
     assistant_name: str   # per-user, from live DB record
 
     # Conversation
-    messages: list[dict]  # history from repository + current_input appended by FastAPI.
-                          # Each dict is {"role": str, "content": str} — passed directly to Ollama.
-    current_input: str    # the message the user just sent
+    current_input: str        # the message the user just sent — populated by FastAPI at invocation
+    engineered_message: str   # written by PROMPT_ENGINEER — cleaned, expanded version of current_input.
+                              # All downstream nodes use this instead of current_input as primary task framing.
+                              # Zero-initialised to "" by FastAPI.
 
     # Project context — session-level only, never persisted
     active_project: str | None  # set by client at session start, None if no project selected.
-                                # Controls project-scoped vault reads and ChromaDB filtering.
-                                # Unrecognised values passed through — MEMORY_RETRIEVE handles
-                                # missing project gracefully. Zero-initialised to None by FastAPI.
+                                # Field present in Mk1 so no state rewiring is needed in Mk2.
+                                # Project-scoped filtering in tools/memory.py is a Mk2 concern —
+                                # always None in Mk1. Zero-initialised to None by FastAPI.
 
     # Routing — zero-initialised by FastAPI
-    intent: list[str]      # set by ROUTER — one or more of "memory"|"tasks"|"code"|"web"|"system"|"conversation"
+    intent: list[str]      # set by ROUTER — one or more of "memory"|"tasks"|"web"|"conversation" (Mk1). "code"|"system"|"skill" added in Mk2.
     tier_gate: list[str]   # set by ROUTER — intent names gated for this user's tier (e.g. ["code", "system"]). Empty in Mk1.
 
     # Skills — zero-initialised by FastAPI
     pending_skills: list[str]  # skill names identified by ROUTER — PLANNER reads to assign skill_name on skill Steps
 
-    # Output — zero-initialised to "" by FastAPI
-    step_response: str        # populated by active agent node — ephemeral per-step scratch field.
-                              # ORCHESTRATOR reads this after each step, saves to step_results,
-                              # then clears it before the next step. Empty by the time RESPONDER runs.
-    assembled_response: str   # populated by RESPONDER — the final coherent response FastAPI sends.
-                              # Always clean markdown — client owns rendering. Safe to store in history.
+    # Output — zero-initialised by FastAPI
+    active_step_prompt: str | None  # written by ORCHESTRATOR from current_step.prompt before each dispatch.
+                                    # Agent nodes read this as their primary task framing.
+                                    # ORCHESTRATOR clears it after each step. Zero-initialised to None.
+    step_response: str              # populated by active agent node — ephemeral per-step scratch field.
+                                    # ORCHESTRATOR reads this after each step, saves to step_results,
+                                    # then clears it before the next step. Empty by the time RESPONDER runs.
+                                    # Zero-initialised to "".
+    assembled_response: str         # populated by RESPONDER — the final coherent response FastAPI sends.
+                                    # Always clean markdown — client owns rendering. Safe to store in history.
+                                    # Zero-initialised to "".
 
     # Status — zero-initialised to None by FastAPI
     status_message: str | None  # written by nodes mid-execution — FastAPI fires status frame on change
@@ -77,7 +84,6 @@ class JarvisState(TypedDict):
 
     # Multi-step execution
     step_plan: list[Step] | None    # produced by PLANNER — zero-initialised to None by FastAPI
-    current_step: Step | None       # the step ORCHESTRATOR is currently executing — zero-initialised to None by FastAPI
     step_results: list[StepResult]  # accumulated step outcomes written by ORCHESTRATOR — zero-initialised to [] by FastAPI
 
     # Refresh signals — zero-initialised to [] by FastAPI

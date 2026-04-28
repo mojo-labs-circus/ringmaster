@@ -129,19 +129,19 @@ async def chat_ws(
 
             is_busy = True
             try:
-                history = history_repo.load(user.username)
                 state: JarvisState = {
                     "user_id": user.username,
                     "message_id": message_id,
                     "tier": user.tier,
                     "client_type": client.client_type,
                     "assistant_name": user.assistant_name,
-                    "messages": history + [{"role": "user", "content": content}],
                     "current_input": content,
+                    "engineered_message": "",
                     "active_project": active_project,
                     "intent": [],
                     "tier_gate": [],
                     "pending_skills": [],
+                    "active_step_prompt": None,
                     "step_response": "",
                     "assembled_response": "",
                     "status_message": None,
@@ -149,7 +149,6 @@ async def chat_ws(
                     "interrupt_payload": None,
                     "correction": None,
                     "step_plan": None,
-                    "current_step": None,
                     "step_results": [],
                     "refresh": [],
                 }

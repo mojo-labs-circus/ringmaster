@@ -17,21 +17,23 @@ def _load() -> dict:
 _config = _load()
 
 # Models — one key per node, plus shared infrastructure keys
-ROUTER_MODEL: str         = _config["models"]["router"]
-PLANNER_MODEL: str        = _config["models"]["planner"]
-CONVERSATION_MODEL: str   = _config["models"]["conversation"]
-TASKS_MODEL: str          = _config["models"]["tasks"]
-MEMORY_MODEL: str         = _config["models"]["memory"]
-WEB_MODEL: str            = _config["models"]["web"]
-SYSTEM_MODEL: str         = _config["models"]["system"]
-RESPONDER_MODEL: str      = _config["models"]["responder"]
-CODE_MODEL: str           = _config["models"]["code"]
-CONSTITUTIONAL_MODEL: str = _config["models"]["constitutional"]
-SKILLS_MODEL: str         = _config["models"]["skills"]
-MEMORY_CHECK_MODEL: str   = _config["models"]["memory_check"]
-EMBEDDING_MODEL: str      = _config["models"]["embedding"]
-FALLBACK_MODEL: str       = _config["models"]["fallback"]
-MULTIMODAL_MODEL: str     = _config["models"]["multimodal"]
+ROUTER_MODEL: str          = _config["models"]["router"]
+PROMPT_ENGINEER_MODEL: str = _config["models"]["prompt_engineer"]
+PLANNER_MODEL: str         = _config["models"]["planner"]
+DECOMPOSER_MODEL: str      = _config["models"]["decomposer"]
+CONVERSATION_MODEL: str    = _config["models"]["conversation"]
+TASKS_MODEL: str           = _config["models"]["tasks"]
+MEMORY_MODEL: str          = _config["models"]["memory"]
+WEB_MODEL: str             = _config["models"]["web"]
+SYSTEM_MODEL: str          = _config["models"]["system"]
+RESPONDER_MODEL: str       = _config["models"]["responder"]
+CODE_MODEL: str            = _config["models"]["code"]
+CONSTITUTIONAL_MODEL: str  = _config["models"]["constitutional"]
+SKILLS_MODEL: str          = _config["models"]["skills"]
+MEMORY_CHECK_MODEL: str    = _config["models"]["memory_check"]
+EMBEDDING_MODEL: str       = _config["models"]["embedding"]
+FALLBACK_MODEL: str        = _config["models"]["fallback"]
+MULTIMODAL_MODEL: str      = _config["models"]["multimodal"]
 
 # Ollama
 OLLAMA_BASE_URL: str    = _config["ollama"]["base_url"]
@@ -53,7 +55,8 @@ DB_PATH: str            = str(Path(_config["db"]["path"]).expanduser())
 DB_BACKEND: str         = os.environ.get("JARVIS_DB_BACKEND", "sqlite")
 
 # History
-CONTEXT_WINDOW_BUDGET: int = _config["history"]["context_window_budget"]
+CONTEXT_WINDOW_BUDGET: int          = _config["history"]["context_window_budget"]
+HISTORY_LIMITS: dict[str, int]      = _config["history"]["history_limits"]
 
 # Maintenance
 RETENTION_DAYS: int          = _config["maintenance"]["retention_days"]

@@ -1,15 +1,17 @@
 """graph/graph.py
 Wires the JARVIS nodes into a compiled LangGraph graph.
 
-Phase 3 stub — a single node returns a hardcoded response so the full
+Mk1 stub — a single node returns a hardcoded response so the full
 WebSocket pipeline (auth, history, frame contract) can be verified before
 real nodes are wired in. Replace stub_node with real nodes as each is built.
 
 Wiring notes for when real nodes are added:
-- START → ROUTER (normal path) or RESPONDER (when state["correction"] is set)
+- START → PROMPT_ENGINEER (normal path) or RESPONDER (when state["correction"] is set)
+- PROMPT_ENGINEER → ROUTER → PLANNER → DECOMPOSER → ORCHESTRATOR
+- ORCHESTRATOR → CONVERSATION | TASKS | WEB | MEMORY | SYSTEM | CODE for built-in intents
 - ORCHESTRATOR → SKILLS when current_step.intent == "skill"
-- ORCHESTRATOR → CONVERSATION | TASKS | WEB | SYSTEM | CODE | MEMORY for built-in intents
-- Any node setting error → RESPONDER (universal error edge)
+- Any top-level node setting error → RESPONDER (universal error edge)
+- Agent nodes dispatched by ORCHESTRATOR always route back to ORCHESTRATOR regardless of error
 """
 
 from langgraph.graph import END, START, StateGraph

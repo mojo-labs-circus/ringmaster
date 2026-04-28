@@ -1,19 +1,21 @@
 models:
-  router:         "mistral:7b"
-  planner:        "qwen2.5:14b"
-  conversation:   "qwen2.5:14b"
-  tasks:          "qwen2.5:14b"
-  memory:         "qwen2.5:14b"
-  web:            "qwen2.5:14b"
-  system:         "qwen2.5:14b"
-  responder:      "qwen2.5:14b"
-  code:           "deepseek-coder-v2:16b"
-  constitutional: "mistral:7b"
-  skills:         "qwen2.5:14b"
-  memory_check:   "mistral:7b"
-  embedding:      "nomic-embed-text"
-  fallback:       "mistral:7b"
-  multimodal:     ""            # placeholder — full system: llava:13b (Phase 9)
+  router:          "mistral:7b"
+  prompt_engineer: "qwen2.5:14b"
+  planner:         "qwen2.5:14b"
+  decomposer:      "qwen2.5:14b"
+  conversation:    "qwen2.5:14b"
+  tasks:           "qwen2.5:14b"
+  memory:          "qwen2.5:14b"
+  web:             "qwen2.5:14b"
+  system:          "qwen2.5:14b"
+  responder:       "qwen2.5:14b"
+  code:            "deepseek-coder-v2:16b"
+  constitutional:  "mistral:7b"
+  skills:          "qwen2.5:14b"
+  memory_check:    "mistral:7b"
+  embedding:       "nomic-embed-text"
+  fallback:        "mistral:7b"
+  multimodal:      ""            # placeholder — full system: llava:13b (Phase 9)
 
 ollama:
   base_url: "http://localhost:11434"
@@ -35,6 +37,13 @@ db:
 
 history:
   context_window_budget: 16000
+  history_limits:
+    router:       5
+    conversation: 20
+    tasks:        10
+    memory:       10
+    web:          5
+    code:         10
 
 maintenance:
   retention_days: 90
@@ -80,8 +89,10 @@ tier_gate_messages:
     set up.
 
 status_messages:
+  prompt_engineer: ""
   router: "Thinking..."
   planner: ""
+  decomposer: ""
   orchestrator: ""
   conversation: ""
   memory: ""

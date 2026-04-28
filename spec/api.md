@@ -192,7 +192,7 @@ FastAPI dispatches on the presence of `type`:
 
 No other client-originated `type` values are valid.
 
-`active_project` is optional on regular messages — omit when no project is selected. The client owns this state: when the user selects a project (web: project selector button, TUI: `/project <name>` slash command), the client stores it and includes it in every subsequent message until changed or cleared. FastAPI reads it from each message envelope and passes it to `JarvisState` — no per-connection storage needed. If absent, FastAPI sets `active_project: None` on state.
+`active_project` is optional on regular messages. **Mk2 concern** — project-scoped filtering is not implemented in Mk1. The field is present in the frame schema and `JarvisState` so no client or server rewiring is needed when Mk2 adds it. In Mk1, FastAPI reads it from the envelope but it has no effect — always treated as `None` by the graph.
 
 ### Server Push
 

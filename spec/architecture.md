@@ -39,17 +39,16 @@
 2. FastAPI authenticates — validates token, checks `token_version` against database, identifies user, loads their profile and tier
 3. FastAPI loads user's recent conversation history from repository
 4. LangGraph invocation created — `JarvisState` populated with `user_id`, `tier`, `client_type`, `assistant_name`, `current_input`, and conversation history. FastAPI appends `current_input` as the final `{"role": "user", "content": current_input}` entry to `messages` so agent nodes always receive a complete, ready-to-use messages list. All node-populated fields are zero-initialised (`""`, `None`, `[]` as appropriate) — see JarvisState Fields.
-5. ROUTER classifies intent — writes `intent` and `needs_memory` to state
-6. PLANNER produces a `StepPlan` from `intent` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
-7. `MEMORY_RETRIEVE` runs if `needs_memory: true` — retrieves relevant context from ChromaDB, writes to `retrieved_context`
-8. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
-9. Agent node executes — calls Ollama silently, writes output to `step_response`. No `token` frames are sent during agent node execution. Status frames keep the user informed (`status_message` updates, node-entry `STATUS_MESSAGES`).
-10. ORCHESTRATOR marks the step complete, clears `error` and `step_response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
-11. RESPONDER makes an LLM call to assemble all `step_results` into a single coherent `assembled_response` (clean markdown). RESPONDER is the sole source of `token` frames — `chat.py` only forwards `on_chat_model_stream` events where `langgraph_node == "responder"`. Sets `refresh` on state.
-12. Graph returns final state to FastAPI
-13. FastAPI writes new exchange to conversation history repository — synchronous, happens before `done` is sent. A single SQL INSERT, negligible latency. Writing before `done` guarantees conversation continuity — a crash after this point cannot lose the exchange from history.
-14. FastAPI sends `done` frame with `refresh` array from state
-15. FastAPI fires `memory/persist.py` as an asyncio background task — not fired on `error` frame paths. Unconditional with respect to `needs_memory` (every successful exchange is evaluated), but never fired when the global exception handler handles the request instead of RESPONDER. Runs after `done` frame is sent, does not block the client.
+5. ROUTER classifies intent — writes `intent`, `tier_gate`, and `pending_skills` to state. Reads the approved skills registry to detect skill intents. Intentionally thin — no memory decisions.
+6. PLANNER produces a `StepPlan` from `intent` and `pending_skills` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
+7. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
+8. Agent node executes — calls `tools/memory.py` if it determines retrieval is needed, calls Ollama silently, writes output to `step_response`. No `token` frames are sent during agent node execution. Status frames keep the user informed (`status_message` updates, node-entry `STATUS_MESSAGES`).
+9. ORCHESTRATOR marks the step complete, clears `error` and `step_response`, dispatches the next ready step — loops until the `StepPlan` is exhausted
+10. RESPONDER makes an LLM call to assemble all `step_results` into a single coherent `assembled_response` (clean markdown). RESPONDER is the sole source of `token` frames — `chat.py` only forwards `on_chat_model_stream` events where `langgraph_node == "responder"`. Sets `refresh` on state.
+11. Graph returns final state to FastAPI
+12. FastAPI writes new exchange to conversation history repository — synchronous, happens before `done` is sent. A single SQL INSERT, negligible latency. Writing before `done` guarantees conversation continuity — a crash after this point cannot lose the exchange from history.
+13. FastAPI sends `done` frame with `refresh` array from state
+14. FastAPI fires `memory/persist.py` as an asyncio background task — not fired on `error` frame paths. Fires unconditionally after every successful exchange — never fired when the global exception handler handles the request instead of RESPONDER. Runs after `done` frame is sent, does not block the client.
 
 ### Key Architecture Principles
 - **LangGraph is stateless between requests.** It receives all context it needs at invocation start and returns output. It does not own persistence.

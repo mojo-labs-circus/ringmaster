@@ -109,19 +109,16 @@ class JarvisState(TypedDict):
     active_project: str | None      # read by FastAPI from each message envelope — optional field, None if absent.
                                     # Client owns this state: user selects a project (web: button, TUI: /project <name>),
                                     # client stores it and includes it in every subsequent message until changed or cleared.
-                                    # Controls project-scoped vault reads and ChromaDB filtering in MEMORY_RETRIEVE and CODE.
+                                    # Controls project-scoped ChromaDB filtering in `tools/memory.py` and CODE.
                                     # Never touches the database. Unrecognised values are passed through — FastAPI does not
-                                    # validate whether the project folder exists. MEMORY_RETRIEVE handles this case and emits
-                                    # a tier-aware status message if no chunks are found for the named project.
+                                    # validate whether the project folder exists. `retrieve_context()` handles this case and
+                                    # returns unfiltered results if no chunks are found for the named project.
                                     # Zero-initialised to None by FastAPI when absent from the message envelope.
 
     # Routing
     intent: list[str]               # set by ROUTER — one or more intents. Zero-initialised to [] by FastAPI.
-    needs_memory: bool              # set by ROUTER — controls retrieval only. Zero-initialised to False by FastAPI.
-
-    # Context
-    retrieved_context: str          # populated by MEMORY_RETRIEVE if invoked — zero-initialised to "" by FastAPI
-    skill_context: str              # populated by ROUTER skills check — zero-initialised to "" by FastAPI
+    tier_gate: list[str]            # set by ROUTER — intent names gated for this user's tier. Zero-initialised to [] by FastAPI. Empty in Mk1.
+    pending_skills: list[str]       # skill names identified by ROUTER — PLANNER reads to create one skill Step per entry. Zero-initialised to [] by FastAPI.
 
     # Output
     step_response: str              # populated by active agent node — ephemeral per-step scratch field. ORCHESTRATOR reads
@@ -162,18 +159,13 @@ class JarvisState(TypedDict):
 
 ### ROUTER
 - Model: `mistral:7b`
-- Classifies every input into one or more intents: `memory | tasks | code | web | system | conversation` — writes result as `list[str]` to `intent` on state
-- Classification only — ROUTER does not produce a step plan. Step decomposition and dependency inference is PLANNER's responsibility.
-- Checks user tier — Standard users cannot be classified into `code` or `system`. If a Standard user's message includes a tier-gated intent, ROUTER leaves `intent` unchanged and appends the gated intent name(s) to `tier_gate` on state. `intent` is never modified — PLANNER plans all steps including the ones that will be blocked. ORCHESTRATOR handles the blocking at dispatch time.
-- Checks personal skills collection (`skills_{user_id}`) then shared skills collection (`skills_shared`) for relevant procedural context — graceful no-op if either collection does not exist yet. Personal skills path derived at runtime: `{memory.vault_base}/{user_id}/02-skills/approved/`. Before reading from either skills path, ROUTER checks whether the directory exists on disk — if it doesn't, that source is treated as empty with no error, matching the behaviour of a missing ChromaDB collection. The skills check is intent-scoped — ROUTER fetches skills relevant to the classified intent(s), not a general sweep. This means `skill_context` on state is already targeted at the destination node(s) before they run.
-- Sets `needs_memory: bool` on state — controls whether `MEMORY_RETRIEVE` is invoked. If any classified intent requires memory, `needs_memory` is set to `true`. Does not control whether `memory/persist.py` runs — that fires unconditionally after every exchange.
-- MEMORY is flagged as needed for: `memory`, `conversation`, `code` intents
-- MEMORY is flagged as needed for `tasks` intent when the request involves reasoning, prioritisation, summarisation, or advice about the task list — e.g. "what should I focus on today?", "am I on track this week?"
-- MEMORY is skipped for `tasks` intent when the request is a pure data mutation or retrieval with no reasoning required — e.g. "add a task", "mark that done", "list my tasks"
-- MEMORY is skipped for: `web`, `system` intents
-- `memory` intent always sets `needs_memory: true` — the MEMORY node operates on `retrieved_context` already populated by MEMORY_RETRIEVE rather than querying ChromaDB itself
+- Intentionally thin — classify intent, discover skills, check tier. Nothing else.
+- Classifies every input into one or more intents: `memory | tasks | web | conversation` (Mk1). `code`, `system`, and `skill` added in Mk2 when those nodes are built.
+- Reads the approved skills registry (personal: `{vault_base}/{user_id}/02-skills/approved/`, shared: `{skills.shared_approved_path}`) — checks whether the directory exists before reading, graceful no-op if absent. Includes skill names and descriptions in the classification prompt so the model can match user intent to a named skill. If a match is found, adds `"skill"` to `intent` and writes matched skill name(s) to `pending_skills` on state. Mk1: no skills exist yet, `pending_skills` always `[]`.
+- Checks user tier — if a Standard user's message includes a tier-gated intent, ROUTER leaves `intent` unchanged and appends the gated intent name(s) to `tier_gate` on state. PLANNER plans all steps including blocked ones. ORCHESTRATOR handles blocking at dispatch time. `tier_gate` always `[]` in Mk1.
+- Output JSON: `{"intents": ["tasks", "skill"], "pending_skills": ["email_summary"]}` — no memory flag, no context. Memory decisions are each agent node's own responsibility via `tools/memory.py`.
 - **Improvement log:** writes a `router_retry` event on retry, `tier_gate_hit` event when a Standard user's intent is gated. See `spec/improvement.md`.
-- **ROUTER failure handling:** if the inference call fails or times out, ROUTER retries once via `tools/llm.py`. If the retry also fails, it raises to the global exception handler — clean error frame to client, admin notified via ntfy. `tools/llm.py`'s cross-model fallback logic does not apply to ROUTER: the router model (`mistral:7b`) and the fallback model are the same, so there is nothing to fall back to. A successful retry is logged at `WARNING` level.
+- **ROUTER failure handling:** if the inference call fails or times out, ROUTER retries once. If the retry also fails, sets `error` on state — graph routes immediately to RESPONDER. `tools/llm.py`'s cross-model fallback does not apply to ROUTER since router model and fallback model are the same. A successful retry is logged at `WARNING` level.
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["router"]` is set — ROUTER itself does not send frames
 
 ### PLANNER
@@ -184,15 +176,41 @@ class JarvisState(TypedDict):
 - On PLANNER failure: sets `error` on state — graph routes immediately to RESPONDER per the universal error routing rule
 - Node-entry status frame sent by FastAPI if `STATUS_MESSAGES["planner"]` is set
 
-### MEMORY_RETRIEVE
-- Only invoked when ROUTER sets `needs_memory: true`
-- Always queries both `memory_{user_id}` (personal) and `memory_shared` (family) — no conditional logic
-- Merges results from both collections, deduplicates by chunk ID, takes top-k by score
-- Injects merged results into `retrieved_context` on state as a single block
+### `tools/memory.py`
+
+Not a graph node — a shared tool imported and called directly by agent nodes. Memory retrieval decisions are made per-node at runtime, not globally by ROUTER.
+
+**`MemoryResult` dataclass:**
+```python
+@dataclass
+class MemoryResult:
+    context: str   # merged retrieved text — empty if nothing relevant found or if retrieval failed
+    success: bool  # False = ChromaDB unavailable. True = ChromaDB worked (context may still be empty).
+```
+
+**`should_retrieve(messages, user_id, message_id) -> bool`**
+- Lightweight yes/no LLM call using `models.memory_check` (`mistral:7b`) — a fast always-loaded model dedicated to this binary classification task
+- Asks: given this conversation, does answering accurately require looking up stored memories?
+- On inference failure: returns `False` (conservative default — proceed without context rather than blocking)
+
+**`retrieve_context(user_id, query, active_project) -> MemoryResult`**
+- Always queries both `memory_{user_id}` (personal) and `memory_shared` (family)
+- Merges results, deduplicates by chunk ID, takes top-k by score
 - Tags memories: `#note #task #fact #code #person #project`
-- On ChromaDB unavailable: sets `error` on state, calls `notify_admin("chromadb_unavailable", ...)`. Per the universal error routing rule, the graph skips all downstream nodes and routes immediately to RESPONDER.
-- **Unrecognised `active_project`:** if `active_project` is set but no ChromaDB chunks are found tagged with that project name, MEMORY_RETRIEVE does not set `error` — it treats this as a graceful no-op and returns unfiltered results instead. Before doing so it writes a tier-aware `status_message`: Admin: `"No chunks found for project '{active_project}' in ChromaDB — returning unfiltered results"`, Power: `"Couldn't find project '{active_project}' — showing full memory instead"`, Standard: `"I couldn't find that project — showing everything I know instead"`. Inference continues normally with the unfiltered context.
-- Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["memory_retrieve"]` is set — MEMORY_RETRIEVE itself does not send frames. The node writes a mid-node `status_message` immediately before querying ChromaDB — content is tier-aware (Admin: `"Querying memory_{user_id} and memory_shared in ChromaDB..."`, Power: `"Searching your memory..."`, Standard: `"One moment..."`)
+- **`active_project` filtering:** if set but no chunks tagged with that project name exist, returns unfiltered results — graceful no-op, not an error
+- **ChromaDB unavailable:** returns `MemoryResult(context="", success=False)`, calls `notify_admin("chromadb_unavailable", ...)`
+- Returns `MemoryResult(context=merged_text, success=True)` on success — `context` may be empty string if nothing relevant found, which is not a failure
+
+**Node usage pattern:**
+
+Each agent node that may need memory calls `should_retrieve()` first. If `True`, calls `retrieve_context()`. If `result.success is False`, the node:
+- Writes a tier-aware `status_message`: Admin: `"ChromaDB unavailable — continuing without memory context"`, Power: `"Couldn't access your memories — response may lack context"`, Standard: `"I couldn't access my memory for this — my response may be incomplete"`
+- Calls `notify_admin("chromadb_unavailable", ...)`
+- Continues with empty context
+
+The MEMORY node (explicit queries like "what do you remember about me?") always calls `retrieve_context()` directly without `should_retrieve()` — explicit memory intent always requires retrieval.
+
+`memory/persist.py` is a separate async background task fired by FastAPI after every successful exchange — unchanged by this design.
 
 ### ORCHESTRATOR
 - Executes the `StepPlan` from state reactively — one step at a time, result of each step informs the next
@@ -216,24 +234,23 @@ class JarvisState(TypedDict):
 ### Graph Flow
 
 ```
-ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORCHESTRATOR → ... → RESPONDER
+ROUTER → PLANNER → ORCHESTRATOR → [agent node] → ORCHESTRATOR → ... → RESPONDER
 ```
 
-`MEMORY_RETRIEVE` is skipped when `needs_memory: false`. ORCHESTRATOR loops back through agent nodes until the `StepPlan` is exhausted. The graph ends at RESPONDER — there is no case where RESPONDER acts as an agent node, it is always a pure formatter. After the graph completes, FastAPI sends the `done` frame and then fires `memory/persist.py` as an asyncio background task unconditionally after every exchange.
+ORCHESTRATOR loops back through agent nodes until the `StepPlan` is exhausted. Agent nodes call `tools/memory.py` internally when they determine retrieval is needed — there is no separate MEMORY_RETRIEVE graph node. The graph ends at RESPONDER — it is always a pure formatter, never an agent node. After the graph completes, FastAPI sends the `done` frame and then fires `memory/persist.py` as an asyncio background task unconditionally after every exchange.
 
 ### CONVERSATION
 - The default node for general chat — the most-used node for Standard tier users
 - Model: `llama3.1:8b`
-- Calls Ollama with `messages`, `retrieved_context`, and `skill_context` (if non-empty) — writes result to `step_response`
+- Calls `tools/memory.py` `should_retrieve()` first — if `True`, calls `retrieve_context()` and includes the result in the Ollama prompt. If `result.success is False`, writes a tier-aware `status_message` and continues without context.
+- Calls Ollama with `messages` and retrieved context (if any) — writes result to `step_response`
 - Available to all tiers
 - No node-entry status frame by default (`STATUS_MESSAGES["conversation"]` is empty) — tokens stream directly
 
 ### MEMORY
 - Handles explicit memory queries and management requests — "what do you remember about me?", "forget what I told you about X"
-- Operations: query retrieved context, explicit delete/forget against ChromaDB, scoped strictly to `user_id`
+- All ChromaDB operations go through `tools/memory.py` — `retrieve_context()` for retrieval, `delete_memory()` for forget/delete. The MEMORY node calls tools, it does not touch ChromaDB directly.
 - All tiers can query, delete, and forget their own memory — it is the user's data
-- Operates on `retrieved_context` already populated by MEMORY_RETRIEVE — does not query ChromaDB directly for retrieval
-- Includes `skill_context` in Ollama prompt if non-empty
 - Delete/forget operations use the interrupt/confirm pattern — node identifies what will be removed, writes it to `interrupt_payload`, user confirms before the ChromaDB delete executes. On cancel, writes a hardcoded cancellation message to `step_response`, no further action taken.
 - **Improvement log:** writes a `memory_forget` event when the user confirms a delete. See `spec/improvement.md`.
 - On ChromaDB unavailable at any point — including after the user has confirmed a delete — sets `error` on state, calls `notify_admin("chromadb_unavailable", ...)`. The user's confirmation is consumed; they would need to request the delete again once the service is restored.
@@ -246,7 +263,7 @@ ROUTER → PLANNER → MEMORY_RETRIEVE → ORCHESTRATOR → [agent node] → ORC
 - Operations: create, update, complete, list, delete
 - Task status values: `open | closed`
 - Task priority values: `low | medium | high`
-- Includes `skill_context` in Ollama prompt if non-empty
+- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - Dev backend: SQLite (same interface, selected via `JARVIS_DB_BACKEND` env var)
 - No node-entry status frame by default (`STATUS_MESSAGES["tasks"]` is empty) — writes a specific `status_message` immediately before each operation (before insert, before query, before update, before delete) so the message is accurate for both reads and mutations. The message content is tier-aware: Admin sees technical detail (e.g. "Inserting task into `tasks` via SQLiteTaskRepository..."), Power sees operational detail (e.g. "Adding your task..."), Standard sees plain language (e.g. "Adding task...")
 - Delete operations use the interrupt/confirm pattern — node identifies the task, writes it to `interrupt_payload`, user confirms before the delete executes. On cancel, writes a hardcoded cancellation message to `step_response`, no further action taken.
@@ -276,7 +293,7 @@ All task mutations other than deletion go through the WebSocket chat interface. 
 - Model: `deepseek-r1:14b`
 - Operations: generate, explain, review, debug, refactor
 - Aware of active project context — reads relevant files and notes from the user's vault under `03-projects/<project>/`, including recent code, architecture notes, and open questions. `[pearlybaker only]` — graceful no-op on nomadbaker where the vault is unavailable.
-- Includes `skill_context` in Ollama prompt if non-empty
+- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - Can execute code via sandboxed subprocess — uses `tools/sandbox.py`
 - No node-entry status frame by default (`STATUS_MESSAGES["code"]` is empty) — writes granular `status_message` updates throughout execution. Content is tier-aware (Admin: full detail including model name and reasoning stage, e.g. `"Reasoning with deepseek-r1:14b — analysing traceback..."`, Power: `"Analysing the problem..."`, Standard: n/a — Standard tier cannot reach CODE)
 - **Phase 3: single-agent only** — uses `deepseek-r1:14b` directly, no subgraph
@@ -323,7 +340,7 @@ loop (configurable max) or surface to user for a decision
 - Scraping: Playwright (headless) via `tools/search.py`
 - Returns summarised results, not raw HTML
 - Available to all tiers
-- Includes `skill_context` in Ollama prompt if non-empty
+- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["web"]` is set — WEB itself does not send frames
 - Writes specific `status_message` updates mid-execution — the query currently being searched. Content is tier-aware (Admin: `"Querying DuckDuckGo: '{query}'..."`, Power: `"Searching the web for '{query}'..."`, Standard: `"Searching the web..."`)
 
@@ -331,7 +348,7 @@ loop (configurable max) or surface to user for a decision
 - Shell command execution and file operations: read, write, move, search
 - Sandboxed to approved paths (defined in `config.yaml` under `system.allowed_paths`) — enforced by `tools/shell.py`
 - Admin and Power tier only
-- Includes `skill_context` in Ollama prompt if non-empty
+- Calls `tools/memory.py` `should_retrieve()` — if True, calls `retrieve_context()` and includes the result in the Ollama prompt
 - No node-entry status frame by default (`STATUS_MESSAGES["system"]` is empty) — writes two `status_message` updates per command: one before calling `interrupt()` while composing the shell command ("Composing command..."), one immediately after the user confirms and before the command executes ("Executing..."). Content for both is tier-aware — see execution sequence below.
 - **Execution sequence:** (1) SYSTEM writes a `status_message` — "Composing command..." (tier-aware: Admin: `"Translating request into shell command via tools/llm.py..."`, Power: `"Working out the command..."`, Standard: n/a) — then calls Ollama to translate the natural language request into a concrete shell command. This inference is internal and not streamed as `token` frames. (2) SYSTEM writes the command to `interrupt_payload` and calls `interrupt()`. (3) FastAPI sends `confirm_request` frame — client disables input and renders a confirmation prompt (e.g. a popup with confirm/cancel). Pre-interrupt phase is otherwise silent from a `status_message` perspective — the `confirm_request` frame handles all pre-execution communication. (4) If confirmed, SYSTEM writes a `status_message` immediately before execution — "Executing now..." (tier-aware: Admin: `"Executing: '{command}' via tools/shell.py..."`, Power: `"Running command: '{command}'..."`, Standard: n/a) — then the command executes via `tools/shell.py`. If cancelled, SYSTEM writes a hardcoded cancellation message to `step_response` — no further Ollama call.
 - **After confirmed execution:** `tools/shell.py` captures stdout and stderr separately. SYSTEM passes both to Ollama to format and summarise into `step_response` — the response includes context about what came from each channel, with tier-appropriate detail (Admin sees which output came from stdout vs stderr; Standard gets a plain language summary of what happened). Four distinct outcomes: (a) stdout and/or stderr present → Ollama formats both into `step_response`; (b) both empty, exit code 0 → hardcoded "Done. `<command>` completed successfully.", no Ollama call; (c) both empty, non-zero exit code → hardcoded "Command failed with exit code N and produced no output."; (d) `tools/shell.py` itself cannot spawn the subprocess → sets `error` on state, which triggers the universal error routing rule. This last case is the only one that sets `error` — command-level failures (including stderr output) always go through `step_response`.

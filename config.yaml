@@ -10,6 +10,7 @@ models:
   code:           "deepseek-coder-v2:16b"
   constitutional: "mistral:7b"
   skills:         "qwen2.5:14b"
+  memory_check:   "mistral:7b"
   embedding:      "nomic-embed-text"
   fallback:       "mistral:7b"
   multimodal:     ""            # placeholder — full system: llava:13b (Phase 9)
@@ -81,7 +82,6 @@ tier_gate_messages:
 status_messages:
   router: "Thinking..."
   planner: ""
-  memory_retrieve: "Searching memory..."
   orchestrator: ""
   conversation: ""
   memory: ""

@@ -48,12 +48,11 @@ class JarvisState(TypedDict):
                                 # missing project gracefully. Zero-initialised to None by FastAPI.
 
     # Routing — zero-initialised by FastAPI
-    intent: list[str]     # set by ROUTER — one or more of "memory"|"tasks"|"code"|"web"|"system"|"conversation"
-    needs_memory: bool    # set by ROUTER — controls whether MEMORY_RETRIEVE is invoked
+    intent: list[str]      # set by ROUTER — one or more of "memory"|"tasks"|"code"|"web"|"system"|"conversation"
+    tier_gate: list[str]   # set by ROUTER — intent names gated for this user's tier (e.g. ["code", "system"]). Empty in Mk1.
 
-    # Context — zero-initialised to "" by FastAPI
-    retrieved_context: str  # populated by MEMORY_RETRIEVE if invoked
-    skill_context: str      # populated by ROUTER skills check
+    # Skills — zero-initialised by FastAPI
+    pending_skills: list[str]  # skill names identified by ROUTER — PLANNER reads to assign skill_name on skill Steps
 
     # Output — zero-initialised to "" by FastAPI
     step_response: str        # populated by active agent node — ephemeral per-step scratch field.

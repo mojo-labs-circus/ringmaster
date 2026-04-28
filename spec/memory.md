@@ -55,17 +55,19 @@ def delete_from(self, user_id: str, entry_id: int) -> None:
 **Shared family memory** — readable by all users, written by JARVIS via classifier:
 - ChromaDB collection: `memory_shared`
 - Source of truth: shared family vault
-- Contains: household info, shared calendar events, family notes, shared tasks
-- Always queried alongside `memory_{user_id}` when `needs_memory=True` — results merged and deduplicated by chunk ID, top-k by score
+- Contains: household info, family notes, shared knowledge
+
+**Dual-scope retrieval** — `tools/memory.py` `retrieve_context()` always queries both `memory_{user_id}` and `memory_shared` in parallel. Results are merged and deduplicated by chunk ID, then ranked top-k by score. Every user automatically gets personal and shared context in every retrieval — no caller configuration required.
 
 ## Memory Persistence — `memory/persist.py`
 
-After the graph completes at RESPONDER and FastAPI has sent the `done` frame, FastAPI fires `memory/persist.py` as an asyncio background task. This fires after every exchange that completes with a `done` frame — it is unconditional with respect to `needs_memory` (every successful exchange is evaluated), but is never scheduled when the global exception handler sends an `error` frame instead. `needs_memory` controls retrieval only. The evaluator inside `memory/persist.py` decides whether anything in the exchange is worth writing to long-term memory; it may determine there is nothing to persist and exit cleanly. This means even exchanges that didn't require memory retrieval (e.g. a simple task mutation) are still evaluated — you never know what might be worth remembering.
+After the graph completes at RESPONDER and FastAPI has sent the `done` frame, FastAPI fires `memory/persist.py` as an asyncio background task. This fires after every exchange that completes with a `done` frame — it is never scheduled when the global exception handler sends an `error` frame instead. The evaluator inside `memory/persist.py` decides whether anything in the exchange is worth writing to long-term memory; it may extract zero units and exit cleanly.
 
-`memory/persist.py` evaluates the completed exchange (`current_input` + `assembled_response`) and decides whether anything new is worth persisting — reads `assembled_response`, which is always clean markdown and safe to store. If worth persisting, it:
+`memory/persist.py` evaluates the completed exchange (`current_input` + `assembled_response`) and extracts a list of discrete memory units — each unit is a single fact, moment, or piece of knowledge worth preserving. One exchange can produce zero, one, or many units. Each unit is processed independently end to end:
 
-1. Writes a raw dated markdown capture to `00-inbox/` under the appropriate personal or shared vault path, based on the personal → shared classifier. One file per memory unit — minimal formatting, just the captured fact or exchange and a timestamp.
-2. Immediately ingests that file into ChromaDB via `memory/ingest.py` so it is queryable right away. The raw capture is usable immediately even before dream has run.
+1. The classifier assigns each unit to personal or shared scope.
+2. The unit is written as a raw dated markdown file to `capture/` under the appropriate vault path — minimal formatting, just the captured content and a timestamp.
+3. The unit is immediately ingested into the corresponding ChromaDB collection (`memory_{user_id}` or `memory_shared`) via `memory/ingest.py` — queryable right away, before dream mode runs.
 
 The vault is the source of truth — users can read, edit, or delete any vault file in Obsidian. ChromaDB is always derived from the vault.
 
@@ -73,17 +75,20 @@ It uses `tools/llm.py` for inference calls, `tools/vault.py` for the vault write
 
 **Improvement log:** writes a `persist_decision` event for every exchange evaluated — both "persist" and "skip" verdicts. See `spec/improvement.md`.
 
-If a `tools/llm.py` inference call fails, `memory/persist.py` retries that call once. The retry applies independently to each inference step — the evaluator and the classifier are each retried once if they fail; a failure in one does not abort the other. If the evaluator fails after one retry, the task exits and the exchange is not persisted. If the classifier fails after one retry, `memory/persist.py` defaults to writing to `memory_{user_id}` (personal) rather than dropping the memory — it is safer to persist to the wrong scope than to lose the memory entirely. All failures at this stage are logged at `ERROR` level with no admin notification per individual failure. Repeated failures will accumulate in the error log and trigger the daily maintenance job threshold notification if the count is high enough.
+**Failure handling** — retries apply per inference step, per unit, independently:
+- If the evaluator fails after one retry, the task exits and no units are persisted for this exchange.
+- If the classifier fails for a specific unit after one retry, that unit defaults to personal scope rather than being dropped — it is safer to persist to the wrong scope than to lose the memory. Other units in the same exchange are unaffected.
+- All failures are logged at `ERROR` level with no per-failure admin notification. Repeated failures accumulate in the error log and trigger the daily maintenance job threshold notification.
 
 On ChromaDB unavailable: logs the failure and calls `notify_admin("chromadb_unavailable", ...)`.
 
-**Future work:** Two planned additions to the memory system, to be designed and implemented in later phases:
-- **Memory pruning** — a scheduled maintenance pass (added to `maintenance/cleanup.py`) that reviews long-term memory and removes stale or superseded entries. Some memories become irrelevant over time.
-- **Dream mode** — a consolidation pass that runs on a schedule (e.g. nightly). Reads raw captures from `00-inbox/`, consolidates them into well-structured, human-readable markdown files in the appropriate vault folders (`01-knowledge/`, `04-conversations/`, etc.) with clear headings and sections — organised by topic, not a flat list of facts. Clears the inbox once consolidated. Then triggers a full re-ingest of the affected ChromaDB collections so the clean structured versions replace the raw captures. The result is a vault you can open in Obsidian and actually understand — a living picture of what JARVIS knows about you.
+**Future work:**
+- **Memory pruning** — a scheduled maintenance pass (added to `maintenance/cleanup.py`) that reviews long-term memory and removes stale or superseded entries.
+- **Dream mode** — a consolidation pass that runs on a schedule (e.g. nightly). Reads raw captures from `capture/`, consolidates them into well-structured human-readable markdown files in the appropriate vault folders (`episodic/`, `semantic/`, `self/`, etc.) with clear headings and sections — organised by topic, not a flat list of facts. Clears the capture folder once consolidated. Then triggers a full re-ingest of the affected ChromaDB collections so the clean structured versions replace the raw captures. The result is a vault you can open in Obsidian and actually read — a living picture of what JARVIS knows about you.
 
 ## Personal → Shared Classification
 
-When JARVIS learns something new, `memory/persist.py` evaluates whether it belongs in personal or shared memory:
+The classifier runs per memory unit, not per exchange. A single exchange can produce units that go to different scopes.
 
 ```
 Personal → private thoughts, preferences, work, personal matters
@@ -113,37 +118,76 @@ The watcher starts only when a vault path exists — graceful no-op on nomadbake
 
 ## Vault Structure
 
+The vault is organised around cognitive memory types — each folder answers a different question, which eliminates ambiguity about where any given memory unit belongs.
+
+**JARVIS behavior config (assistant name, tone, technicality level) is not in the vault.** It lives in the `users` DB table and is served via `GET /PATCH /profile` endpoints. The vault holds knowledge about the user as a person, not how JARVIS is configured.
+
 Per-user vault (`{memory.vault_base}/{user_id}/` — on pearlybaker this resolves via the `~/jarvis-brain` symlink to `/mnt/hdd/jarvis/<username>/`):
 ```
 <username>/
-├── 00-inbox/          # Raw memory captures from persist.py — cleared by dream mode
-├── 01-knowledge/      # Consolidated knowledge — structured by dream mode, human-readable
-├── 02-skills/         # Procedural memory
-│   ├── approved/      # Live skills the assistant can use
-│   ├── pending/       # Candidate skills awaiting review
-│   └── retired/       # Old skills kept for reference
-├── 03-projects/       # One folder per project
-├── 04-conversations/  # Notable exchanges — consolidated by dream mode
-├── 05-people/         # Contact notes
-├── 06-system/         # Assistant config, spec
-└── 07-journal/        # Daily notes
+├── capture/       # Raw staging — captures from persist.py, cleared by dream mode
+├── episodic/      # What happened — time-indexed experiences, notable conversations, moments
+├── semantic/      # What I know — timeless facts about people, places, concepts
+├── procedural/    # How to do things — skills
+│   ├── approved/  # Live skills the assistant can use
+│   ├── pending/   # Candidate skills awaiting review
+│   └── retired/   # Old skills kept for reference
+└── self/          # Who I am — values, preferences, personal history, identity
 ```
 
-**Note:** Tasks are not in the vault — they live in the tasks database. The vault holds unstructured knowledge and memory only.
+**Note:** Tasks and calendar are not in the vault — tasks live in the tasks DB, calendar via `tools/calendar.py` (see below). The vault holds unstructured knowledge and memory only.
 
 Shared vault (`{memory.vault_base}/shared/` — on pearlybaker: `/mnt/hdd/jarvis/shared/`):
 ```
 shared/
-├── 00-inbox/          # Raw shared memory captures — cleared by dream mode
-├── 01-knowledge/      # Consolidated family knowledge — structured by dream mode
-├── 02-calendar/       # Shared events and schedules
-├── 03-people/         # Shared contacts
-└── 04-skills/         # Shared approved skills
+├── capture/       # Raw shared captures — cleared by dream mode
+├── episodic/      # Shared family moments and events
+├── semantic/      # Household facts, shared contacts, family knowledge
+└── procedural/    # Shared skills
     ├── approved/
     └── pending/
 ```
 
-**Note:** Shared tasks are not in the vault — they live in the tasks database.
+**Note:** Shared tasks are not in the vault. Shared calendar is iCloud CalDAV — see below.
+
+---
+
+## Calendar — `tools/calendar.py`
+
+Calendar is not stored in the vault. It is structured, time-indexed, transactional data — the wrong fit for markdown and ChromaDB vector search. `tools/calendar.py` is the single interface all nodes use to read and write calendar data.
+
+**Backend:** iCloud CalDAV via the `caldav` Python library. iCloud exposes a CalDAV endpoint at `https://caldav.icloud.com`. Apple does not allow third-party apps to use the main Apple ID password — each JARVIS deployment uses an **app-specific password** generated in Apple ID settings.
+
+**Why CalDAV:** it is an open standard. The same `tools/calendar.py` interface could swap its backend for Google CalDAV or any other CalDAV provider without changing any node code.
+
+**Credentials** — stored as env vars, never in the vault or DB:
+
+| Env var | Contents |
+|---|---|
+| `JARVIS_CALDAV_USER_<user_id>` | Apple ID email for this user |
+| `JARVIS_CALDAV_PASSWORD_<user_id>` | App-specific password for this user |
+| `JARVIS_CALDAV_SHARED_USER` | Apple ID with access to the shared family calendar |
+| `JARVIS_CALDAV_SHARED_PASSWORD` | App-specific password for the shared calendar account |
+
+**Config keys:**
+
+| Key | Default | Notes |
+|---|---|---|
+| `calendar.backend` | `caldav` | `caldav` \| `mock` |
+| `calendar.caldav_url` | `https://caldav.icloud.com` | Override for non-iCloud CalDAV |
+
+**`tools/calendar.py` interface:**
+
+```python
+def get_events(user_id: str, start: datetime, end: datetime, shared: bool = False) -> list[CalendarEvent]
+def create_event(user_id: str, event: CalendarEvent, shared: bool = False) -> CalendarEvent
+def update_event(user_id: str, event_id: str, updates: dict, shared: bool = False) -> CalendarEvent
+def delete_event(user_id: str, event_id: str, shared: bool = False) -> None
+```
+
+`shared=True` routes to the shared family calendar using the shared credentials. `shared=False` routes to the user's personal calendar.
+
+**Mock mode** (`calendar.backend: mock`): returns empty results or fixture data, no network calls. Graceful no-op on nomadbaker where no iCloud credentials are present.
 
 ---
 
@@ -181,23 +225,23 @@ When asked to debug a Python error or traceback.
 ```
 
 **Skills paths:**
-- Personal skills: derived at runtime — `{memory.vault_base}/{user_id}/02-skills/approved/`
-- Shared skills: explicit config key — `skills.shared_approved_path`
+- Personal skills: derived at runtime — `{memory.vault_base}/{user_id}/procedural/approved/`
+- Shared skills: explicit config key — `skills.shared_approved_path` (resolves to `{memory.vault_base}/shared/procedural/approved/`)
 
 **Approval flow:**
 ```
 Assistant proposes skill
         │
         ▼
-  02-skills/pending/     ← user reviews (Obsidian or future web UI)
+  procedural/pending/     ← user reviews (Obsidian or future web UI)
         │
    approved (shared: Admin only)
         │
         ▼
-  02-skills/approved/    ← assistant can now use it
+  procedural/approved/    ← assistant can now use it
         │
         ▼
-  ChromaDB ingestion     ← immediately queryable
+  ChromaDB ingestion      ← immediately queryable
 ```
 
 ROUTER checks `skills_{user_id}` then `skills_shared` before every action. Personal skills take precedence over shared ones when there is a conflict. Both checks are graceful no-ops if the collection does not exist yet.

@@ -77,6 +77,15 @@ system:
 coding_team:
   max_review_iterations: 3
 
+intent_tiers:
+  conversation: standard
+  tasks: standard
+  memory: standard
+  web: standard
+  skill: standard
+  code: power
+  system: power
+
 tier_gate_messages:
   system: >-
     Shell access lets me run commands directly on your device — things like moving files,

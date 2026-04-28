@@ -93,6 +93,10 @@ MAX_REVIEW_ITERATIONS: int = _config["coding_team"]["max_review_iterations"]
 # Tier gate messages — keyed by capability, shown to Standard tier users
 TIER_GATE_MESSAGES: dict[str, str] = _config["tier_gate_messages"]
 
+# Minimum tier required per intent — standard < power < admin
+INTENT_TIERS: dict[str, str] = _config["intent_tiers"]
+TIER_RANK: dict[str, int] = {"standard": 0, "power": 1, "admin": 2}
+
 # Status messages
 STATUS_MESSAGES: dict[str, str] = _config["status_messages"]
 

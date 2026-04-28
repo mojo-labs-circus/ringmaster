@@ -87,6 +87,8 @@
 - [x] Full spec audit of DAG orchestration section (PLANNER + ORCHESTRATOR)
 
 **Remaining nodes:**
+- [x] PROMPT_ENGINEER node — `graph/nodes/prompt_engineer.py`
+- [x] ROUTER node — `graph/nodes/router.py`
 - [ ] PLANNER node — `graph/nodes/planner.py` — calls REASONING_MODEL via `tools/llm.py`, receives `intent: list[str]`, produces `step_plan: list[Step]`, sets `error` on failure
 - [ ] ORCHESTRATOR node — `graph/nodes/orchestrator.py` — reactive loop, dispatches to CONVERSATION, TASKS, WEB, and MEMORY agent nodes, writes `step_results`, clears `error`/`step_response` between steps, marks blocked steps, routes to RESPONDER when plan exhausted
 - [ ] `graph/graph.py` wiring — conditional edge skipping MEMORY_RETRIEVE when `needs_memory: false`, ORCHESTRATOR loop back to itself or forward to RESPONDER, universal error edge routing any node with `error` set directly to RESPONDER
@@ -206,3 +208,4 @@ The TUI is a long-lived terminal process — the access token can expire mid-ses
 | 2026-04-24 (1) | Second spec audit — 13 issues resolved. CONSTITUTIONAL fully specced. SKILLS node architecture added. |
 | 2026-04-27 (1) | Project reframed — Mk1/Mk2/Mk3 replacing phases. Mk1 = family product by summer 2026. SYSTEM, CODE, CONSTITUTIONAL, SKILLS, tier gating moved to Mk2. spec/phases.md, jarvis-dev-context.md, CLAUDE.md updated. |
 | 2026-04-28 (1) | Architecture overhaul before nodes — MEMORY_RETRIEVE node replaced with tools/memory.py (per-node retrieval, should_retrieve() + retrieve_context()); ROUTER thinned to intent + skills discovery + tier only; skill_context removed, pending_skills added for ROUTER→PLANNER skill handoff; needs_memory + retrieved_context removed from JarvisState; tier_gate added (was missing); memory_check model added to config; spec/ai.md + spec/architecture.md updated throughout. ROUTER pseudocode is next. |
+| 2026-04-28 (2) | PROMPT_ENGINEER and ROUTER nodes complete. tools/log.py (log_improvement), tools/history.py (get_history) written. _write_improve_event moved out of llm.py. intent_tiers + TIER_RANK added to config — replaces hardcoded _GATED_INTENTS set, supports per-intent and per-skill lowest_tier in Mk2. PLANNER is next. |

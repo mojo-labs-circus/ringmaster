@@ -1,5 +1,5 @@
 # JARVIS — Claude Code Context
-> **Session start:** Read `CLAUDE.md` (this file) and `jarvis-dev-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
+> **Session start:** Read `CLAUDE.md` (this file), `jarvis-dev-context.md`, and `jarvis-testing-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
 Mk1 — DECOMPOSER node. PROMPT_ENGINEER, ROUTER, and PLANNER complete. Next: write DECOMPOSER pseudocode, then implement. Read spec/ai.md DECOMPOSER section before starting.
@@ -25,6 +25,8 @@ Mk1 — DECOMPOSER node. PROMPT_ENGINEER, ROUTER, and PLANNER complete. Next: wr
 **If you want to edit a file Claude wrote, do it — don't just passively approve it.**
 
 **Call out spec deviations immediately.** The spec is the source of truth. If something contradicts it, flag it before the code lands.
+
+**Write tests alongside implementation.** Every node and tool gets a test file in the same session it is written. Before starting implementation, check the coverage tracker in `jarvis-testing-context.md`. Mark the row ✅ when the test file is complete.
 
 ## Architecture Rules
 - Repository pattern everywhere — nodes never touch raw SQL or storage directly

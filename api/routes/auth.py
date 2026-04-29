@@ -30,6 +30,7 @@ from config import (
     ALGORITHM,
     BRUTE_FORCE_LIMIT,
     BRUTE_FORCE_WINDOW_MINUTES,
+    INVITE_EXPIRE_HOURS,
     REFRESH_TOKEN_EXPIRE_DAYS,
     SECRET_KEY,
 )
@@ -168,7 +169,7 @@ def invite(
         username=body.username,
         tier=body.tier,
         assistant_name=body.assistant_name,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=48),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=INVITE_EXPIRE_HOURS),
         used=False,
     ))
     return InviteResponse(token=raw_token)  # only time the raw token exists in plaintext

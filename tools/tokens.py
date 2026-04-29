@@ -6,14 +6,18 @@ Good enough for nomadbaker — on pearlybaker/server this will be replaced with 
 to Ollama's /api/tokenize endpoint for exact counts.
 """
 
-_CHARS_PER_TOKEN = 4
+from config import CHARS_PER_TOKEN
 
 
 def count_tokens(text: str) -> int:
     """Estimate the number of tokens in a string."""
-    return max(1, len(text) // _CHARS_PER_TOKEN)
+    return max(1, len(text) // CHARS_PER_TOKEN)
 
 
 def count_messages(messages: list[dict]) -> int:
-    """Estimate the total tokens across a list of {"role": ..., "content": ...} dicts."""
+    """Estimate the total tokens across a list of {"role": ..., "content": ...} dicts.
+
+    TODO: role is metadata in the Ollama API and shouldn't contribute to the token count.
+    Revisit when implementing context window management.
+    """
     return sum(count_tokens(m.get("role", "") + m.get("content", "")) for m in messages)

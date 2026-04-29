@@ -2,7 +2,7 @@
 > **Session start:** Read `CLAUDE.md` (this file), `jarvis-dev-context.md`, and `jarvis-testing-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-Mk1 — DECOMPOSER node. PROMPT_ENGINEER, ROUTER, and PLANNER complete. Next: write DECOMPOSER pseudocode, then implement. Read spec/ai.md DECOMPOSER section before starting.
+Mk1 — Test suite. Pure unit tests complete — test_tokens.py, test_notify.py, test_log.py, test_history.py all passing. Next: test_llm.py (needs mock_ollama). Full plan and per-file checklists in temp_test_setup.md.
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the Mk1 checklist.

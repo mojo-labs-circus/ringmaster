@@ -47,6 +47,7 @@ SERVER_DEV: bool        = _config["server"]["dev"]
 # Auth
 ACCESS_TOKEN_EXPIRE_HOURS: int      = _config["auth"]["access_token_expire_hours"]
 REFRESH_TOKEN_EXPIRE_DAYS: int      = _config["auth"]["refresh_token_expire_days"]
+INVITE_EXPIRE_HOURS: int            = _config["auth"]["invite_expire_hours"]
 BRUTE_FORCE_LIMIT: int              = _config["auth"]["brute_force_limit"]
 BRUTE_FORCE_WINDOW_MINUTES: int     = _config["auth"]["brute_force_window_minutes"]
 
@@ -75,6 +76,12 @@ CHUNK_OVERLAP: int      = _config["memory"]["chunk_overlap"]
 
 # Improve log
 IMPROVE_LOG_PATH: str   = str(Path(_config["improve"]["log_path"]).expanduser())
+
+# Notify
+NOTIFY_COOLDOWN_SECONDS: int = _config["notify"]["cooldown_seconds"]
+
+# Tokens
+CHARS_PER_TOKEN: int = _config["tokens"]["chars_per_token"]
 
 # Admin
 ADMIN_CONTACT: str      = _config["admin"]["contact"]

@@ -8,12 +8,10 @@ notify_admin  — wraps ntfy for acute failures. Cooldown keyed on
 
 import logging
 import time
-from typing import Final
+
+from config import NOTIFY_COOLDOWN_SECONDS
 
 logger = logging.getLogger(__name__)
-
-# Seconds between repeat notifications for the same (error_class, message) pair.
-_COOLDOWN_SECONDS: Final[int] = 600  # 10 minutes
 
 # In-memory cooldown state — not persisted. Process restart clears it, which is
 # fine: if JARVIS just crashed and restarted, the admin should hear about it again.
@@ -32,7 +30,7 @@ def notify_admin(error_class: str, message: str) -> None:
     key = (error_class, message)
     now = time.monotonic()
 
-    if now - _last_notified.get(key, 0.0) < _COOLDOWN_SECONDS:
+    if now - _last_notified.get(key, 0.0) < NOTIFY_COOLDOWN_SECONDS:
         return
 
     _last_notified[key] = now

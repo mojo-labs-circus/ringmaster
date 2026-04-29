@@ -29,6 +29,7 @@ server:
 auth:
   access_token_expire_hours: 24
   refresh_token_expire_days: 90
+  invite_expire_hours: 48
   brute_force_limit: 5        # failed login attempts before admin is notified
   brute_force_window_minutes: 10
 
@@ -62,6 +63,12 @@ memory:
 
 improve:
   log_path: "~/.jarvis/improve.jsonl"
+
+notify:
+  cooldown_seconds: 600
+
+tokens:
+  chars_per_token: 4
 
 admin:
   contact: "Clarke"

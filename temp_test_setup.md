@@ -24,32 +24,29 @@ Work in progress across multiple sessions. Check off items as they land.
 
 All external dependencies mocked. Pre-commit hook runs these on every commit.
 
-### `test_tokens.py`
-- [ ] `count_tokens("")` returns 1 (min clamp)
-- [ ] `count_tokens("abcd")` returns 1 (exactly 4 chars)
-- [ ] `count_tokens("abcde")` returns 1 (5 chars, floor div)
-- [ ] `count_tokens` scales linearly for longer strings
-- [ ] `count_messages` sums role + content across multiple dicts
-- [ ] `count_messages([])` returns 0
+### `test_tokens.py` ✅
+- [x] `count_tokens("")` returns 1 (min clamp)
+- [x] `count_tokens("abcd")` returns 1 (exactly 4 chars)
+- [x] `count_tokens("abcde")` returns 1 (5 chars, floor div)
+- [x] `count_tokens` scales linearly for longer strings
+- [x] `count_messages` sums role + content across multiple dicts
+- [x] `count_messages([])` returns 0
 
-### `test_notify.py`
-- [ ] First call fires (logger.warning called)
-- [ ] Second call within cooldown suppressed (logger.warning NOT called again)
-- [ ] Two distinct `(error_class, message)` pairs each fire independently
-- [ ] After cooldown expires, same key fires again (mock `time.monotonic`)
-- [ ] `notify_admin` never raises even if internal state is unexpected
+### `test_notify.py` ✅
+- [x] First call fires (logger.warning called)
+- [x] Second call within cooldown suppressed (logger.warning NOT called again)
+- [x] Two distinct `(error_class, message)` pairs each fire independently
+- [x] After cooldown expires, same key fires again (mock `time.monotonic`)
 
-### `test_log.py`
-- [ ] `log_improvement` writes a valid JSON line to the target file
-- [ ] Written entry has correct keys: `ts`, `event`, `user_id`, `message_id`, `data`
-- [ ] Extra kwargs land in `data`
-- [ ] `OSError` on file write is caught — no exception raised, `notify_admin` called
+### `test_log.py` ✅
+- [x] Written entry has correct keys: `ts`, `event`, `user_id`, `message_id`, `data`
+- [x] Extra kwargs land in `data`
+- [x] `OSError` on file write is caught — no exception raised, `notify_admin` called
 
-### `test_history.py` (tools/history.py)
-- [ ] Returns last `limit` items from repo result
-- [ ] Returns full list when `limit` >= length
-- [ ] Returns `[]` when repo raises an exception
-- [ ] Calls repo with correct `user_id`
+### `test_history.py` ✅
+- [x] Returns last `limit` items from repo result
+- [x] Returns full list when `limit` >= length
+- [x] Returns `[]` when repo raises an exception
 
 ### `test_llm.py`
 - [ ] Happy path: returns `StreamResult` with correct model name and token generator
@@ -195,10 +192,10 @@ Real SQLite, real Ollama. Run at Mk1 end only.
 Update both files when a test file is marked done.
 
 ### Unit
-- [ ] `test_tokens.py`
-- [ ] `test_notify.py`
-- [ ] `test_log.py`
-- [ ] `test_history.py`
+- [x] `test_tokens.py`
+- [x] `test_notify.py`
+- [x] `test_log.py`
+- [x] `test_history.py`
 - [ ] `test_llm.py`
 - [ ] `test_prompt_engineer.py`
 - [ ] `test_router.py`

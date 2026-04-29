@@ -89,4 +89,4 @@ Fixtures return objects only — tests that need a user in the database insert e
 
 ## Pre-Commit Hook
 
-Not yet configured — must be set up before the first unit test is written. Command: `pytest tests/unit/`.
+Configured — `.git/hooks/pre-commit` activates `~/.venvs/jarvis` and runs `pytest tests/unit/`. Blocks commits on failure.

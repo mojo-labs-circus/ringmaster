@@ -2,7 +2,7 @@
 > **Session start:** Read `CLAUDE.md` (this file) and `jarvis-dev-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-Mk1 — PLANNER node. PROMPT_ENGINEER and ROUTER complete. Next: write PLANNER pseudocode, then implement. Read spec/ai.md PLANNER section before starting.
+Mk1 — DECOMPOSER node. PROMPT_ENGINEER, ROUTER, and PLANNER complete. Next: write DECOMPOSER pseudocode, then implement. Read spec/ai.md DECOMPOSER section before starting.
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the Mk1 checklist.

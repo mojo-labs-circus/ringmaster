@@ -54,7 +54,7 @@ class JarvisState(TypedDict):
     tier_gate: list[str]   # set by ROUTER — intent names gated for this user's tier (e.g. ["code", "system"]). Empty in Mk1.
 
     # Skills — zero-initialised by FastAPI
-    pending_skills: list[str]  # skill names identified by ROUTER — PLANNER reads to assign skill_name on skill Steps
+    detected_skills: list[str]  # skill names identified by ROUTER — PLANNER reads to assign skill_name on skill Steps
 
     # Output — zero-initialised by FastAPI
     active_step_prompt: str | None  # written by ORCHESTRATOR from current_step.prompt before each dispatch.

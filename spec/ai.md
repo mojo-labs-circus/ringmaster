@@ -114,7 +114,7 @@ class JarvisState(TypedDict):
                                     # ROUTER does not remove these from `intent` — PLANNER plans all steps including blocked ones.
                                     # ORCHESTRATOR pre-blocks any step whose intent appears here before dispatching.
                                     # Zero-initialised to [] by FastAPI. Empty in Mk1.
-    pending_skills: list[str]       # skill names identified by ROUTER — PLANNER reads to create one skill Step per entry. Zero-initialised to [] by FastAPI.
+    detected_skills: list[str]       # skill names identified by ROUTER — PLANNER reads to create one skill Step per entry. Zero-initialised to [] by FastAPI.
 
     # Output
     active_step_prompt: str | None  # written by ORCHESTRATOR from current_step.prompt before each dispatch — the focused
@@ -167,9 +167,9 @@ class JarvisState(TypedDict):
 - Intentionally thin — classify intent, discover skills, check tier. Nothing else.
 - Calls `get_history(user_id, limit=config.history_limits.router)` — small window, enough to resolve implicit references in the current message for accurate classification. Does not retrieve from the vault.
 - Classifies every input into one or more intents: `memory | tasks | web | conversation` (Mk1). `code`, `system`, and `skill` added in Mk2 when those nodes are built.
-- Reads the approved skills registry (personal: `{vault_base}/{user_id}/02-skills/approved/`, shared: `{skills.shared_approved_path}`) — checks whether the directory exists before reading, graceful no-op if absent. Includes skill names and descriptions in the classification prompt so the model can match user intent to a named skill. If a match is found, adds `"skill"` to `intent` and writes matched skill name(s) to `pending_skills` on state. Mk1: no skills exist yet, `pending_skills` always `[]`.
+- Reads the approved skills registry (personal: `{vault_base}/{user_id}/02-skills/approved/`, shared: `{skills.shared_approved_path}`) — checks whether the directory exists before reading, graceful no-op if absent. Includes skill names and descriptions in the classification prompt so the model can match user intent to a named skill. If a match is found, adds `"skill"` to `intent` and writes matched skill name(s) to `detected_skills` on state. Mk1: no skills exist yet, `detected_skills` always `[]`.
 - Checks user tier — if a Standard user's message includes a tier-gated intent, ROUTER leaves `intent` unchanged and appends the gated intent name(s) to `tier_gate` on state. PLANNER plans all steps including blocked ones. ORCHESTRATOR handles blocking at dispatch time. `tier_gate` always `[]` in Mk1.
-- Output JSON: `{"intents": ["tasks", "skill"], "pending_skills": ["email_summary"]}` — no memory flag, no context. Memory decisions are each agent node's own responsibility via `tools/memory.py`.
+- Output JSON: `{"intents": ["tasks", "skill"], "detected_skills": ["email_summary"]}` — no memory flag, no context. Memory decisions are each agent node's own responsibility via `tools/memory.py`.
 - **Improvement log:** writes a `router_retry` event on retry, `tier_gate_hit` event when a Standard user's intent is gated. See `spec/improvement.md`.
 - **ROUTER failure handling:** if the inference call fails or times out, ROUTER retries once. If the retry also fails, sets `error` on state — graph routes immediately to RESPONDER. `tools/llm.py`'s cross-model fallback does not apply to ROUTER since router model and fallback model are the same. A successful retry is logged at `WARNING` level.
 - Node-entry status frame sent by FastAPI via `astream_events` if `STATUS_MESSAGES["router"]` is set — ROUTER itself does not send frames

@@ -140,7 +140,7 @@ async def chat_ws(
                     "active_project": active_project,
                     "intent": [],
                     "tier_gate": [],
-                    "pending_skills": [],
+                    "detected_skills": [],
                     "active_step_prompt": None,
                     "step_response": "",
                     "assembled_response": "",

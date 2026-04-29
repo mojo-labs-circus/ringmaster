@@ -38,8 +38,8 @@
 1. Client sends message with JWT access token
 2. FastAPI authenticates — validates token, checks `token_version` against database, identifies user, loads their profile and tier
 3. FastAPI constructs `JarvisState` — populates identity fields (`user_id`, `tier`, `client_type`, `assistant_name`, `message_id`, `current_input`, `active_project`). All node-populated fields are zero-initialised (`""`, `None`, `[]` as appropriate) — see JarvisState Fields. History is not pre-loaded into state; nodes that need conversational context call `tools/history.py` directly with the limit appropriate for their role.
-5. ROUTER classifies intent — writes `intent`, `tier_gate`, and `pending_skills` to state. Reads the approved skills registry to detect skill intents. Intentionally thin — no memory decisions.
-6. PLANNER produces a `StepPlan` from `intent` and `pending_skills` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
+5. ROUTER classifies intent — writes `intent`, `tier_gate`, and `detected_skills` to state. Reads the approved skills registry to detect skill intents. Intentionally thin — no memory decisions.
+6. PLANNER produces a `StepPlan` from `intent` and `detected_skills` — writes `step_plan` to state. Single-intent messages produce a one-step plan with negligible overhead.
 7. ORCHESTRATOR begins executing the `StepPlan` — dispatches to the next ready agent node
 8. Agent node executes — calls `tools/memory.py` if it determines retrieval is needed, calls Ollama silently, writes output to `step_response`. No `token` frames are sent during agent node execution. Status frames keep the user informed (`status_message` updates, node-entry `STATUS_MESSAGES`).
 9. ORCHESTRATOR marks the step complete, clears `error` and `step_response`, dispatches the next ready step — loops until the `StepPlan` is exhausted

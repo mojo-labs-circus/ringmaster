@@ -1,3 +1,8 @@
+"""db/tasks/postgres.py
+Postgres implementation of TaskRepository. Stub only — all methods raise
+NotImplementedError. Full implementation is deferred to the server deployment milestone.
+"""
+
 from datetime import datetime
 
 from db.tasks.models import Task
@@ -5,6 +10,8 @@ from db.tasks.repository import TaskRepository
 
 
 class PostgresTaskRepository(TaskRepository):
+    """TaskRepository backed by Postgres. Stub only — raises NotImplementedError on all methods."""
+
     # Full implementation deferred to Phase 5 — SQLite is the dev backend until then
 
     def create_task(self, task: Task) -> Task:

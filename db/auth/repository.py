@@ -1,9 +1,20 @@
+"""db/auth/repository.py
+Abstract base class defining the AuthRepository interface. Both SQLiteAuthRepository
+and PostgresAuthRepository implement this contract. Route handlers never touch
+SQL directly — they call through this interface.
+"""
+
 from abc import ABC, abstractmethod
 
 from db.auth.models import Invite, RefreshToken, User
 
 
 class AuthRepository(ABC):
+    """Interface for all auth data operations.
+
+    The factory in db/auth/factory.py returns the correct implementation based
+    on JARVIS_DB_BACKEND. SQLite is the dev backend; Postgres is production.
+    """
 
     # --- Users ---
 

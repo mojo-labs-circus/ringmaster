@@ -1,3 +1,9 @@
+"""db/auth/sqlite.py
+SQLite implementation of AuthRepository. Used in development — Postgres is the
+production backend. Each method opens a fresh connection, executes, and closes to
+avoid SQLite's cross-thread connection issues with FastAPI's dependency injection.
+"""
+
 import sqlite3
 from datetime import datetime
 
@@ -6,6 +12,7 @@ from db.auth.repository import AuthRepository
 
 
 class SQLiteAuthRepository(AuthRepository):
+    """AuthRepository backed by a local SQLite file at DB_PATH/auth.db."""
 
     def __init__(self, db_path: str) -> None:
         # Path to auth.db — connection is opened per method, not held open,
@@ -15,6 +22,7 @@ class SQLiteAuthRepository(AuthRepository):
     # --- Users ---
 
     def get_user(self, username: str) -> User | None:
+        """Return the User for username, or None if not found."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -36,6 +44,7 @@ class SQLiteAuthRepository(AuthRepository):
         )
 
     def create_user(self, user: User) -> None:
+        """Insert a new user row."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -47,6 +56,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection.close()
 
     def increment_token_version(self, username: str) -> None:
+        """Atomically increment token_version, invalidating all active tokens for username."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -57,6 +67,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection.close()
 
     def update_assistant_name(self, username: str, assistant_name: str) -> None:
+        """Update the display name for username."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -67,6 +78,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection.close()
 
     def disable_user(self, username: str) -> None:
+        """Set disabled=True, blocking login and token refresh for username."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
@@ -74,6 +86,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection.close()
 
     def enable_user(self, username: str) -> None:
+        """Set disabled=False, restoring login access for username."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute("UPDATE users SET disabled = 0 WHERE username = ?", (username,))
@@ -81,6 +94,7 @@ class SQLiteAuthRepository(AuthRepository):
         connection.close()
 
     def update_password(self, username: str, password_hash: str) -> None:
+        """Replace the stored password hash for username."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (password_hash, username))
@@ -90,6 +104,7 @@ class SQLiteAuthRepository(AuthRepository):
     # --- Refresh Tokens ---
 
     def create_refresh_token(self, token: RefreshToken) -> RefreshToken:
+        """Insert a refresh token row and stamp the database-assigned id back onto token."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -103,6 +118,7 @@ class SQLiteAuthRepository(AuthRepository):
         return token
 
     def get_refresh_token_by_hash(self, token_hash: str) -> RefreshToken | None:
+        """Return the RefreshToken matching token_hash, or None if not found."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -123,6 +139,7 @@ class SQLiteAuthRepository(AuthRepository):
         )
 
     def revoke_refresh_token(self, token_hash: str) -> None:
+        """Mark the refresh token row as revoked. The row is never deleted."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -135,6 +152,7 @@ class SQLiteAuthRepository(AuthRepository):
     # --- Invites ---
 
     def create_invite(self, invite: Invite) -> Invite:
+        """Insert an invite row and stamp the database-assigned id back onto invite."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -156,6 +174,7 @@ class SQLiteAuthRepository(AuthRepository):
         return invite
 
     def get_invite_by_hash(self, token_hash: str) -> Invite | None:
+        """Return the Invite matching token_hash, or None if not found."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -179,6 +198,7 @@ class SQLiteAuthRepository(AuthRepository):
         )
 
     def mark_invite_used(self, token_hash: str) -> None:
+        """Mark the invite row as used to prevent reuse."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(

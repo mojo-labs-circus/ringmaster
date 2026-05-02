@@ -1,3 +1,8 @@
+"""db/history/sqlite.py
+SQLite implementation of HistoryRepository. Connects per-method to avoid
+cross-thread connection sharing with FastAPI.
+"""
+
 import sqlite3
 from datetime import datetime
 
@@ -6,6 +11,7 @@ from db.history.repository import HistoryRepository
 
 
 def _row_to_entry(row: tuple) -> HistoryEntry:
+    """Convert a raw SELECT row tuple to a HistoryEntry dataclass."""
     return HistoryEntry(
         id=row[0],
         user_id=row[1],
@@ -16,6 +22,7 @@ def _row_to_entry(row: tuple) -> HistoryEntry:
 
 
 class SQLiteHistoryRepository(HistoryRepository):
+    """HistoryRepository backed by a local SQLite file at DB_PATH/history.db."""
 
     def __init__(self, db_path: str) -> None:
         # Path to history.db — connection opened per method, not held open,
@@ -23,6 +30,7 @@ class SQLiteHistoryRepository(HistoryRepository):
         self.db_path = db_path
 
     def load(self, user_id: str) -> list[HistoryEntry]:
+        """Return all history entries for user_id in chronological order."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -36,6 +44,7 @@ class SQLiteHistoryRepository(HistoryRepository):
         return [_row_to_entry(row) for row in rows]
 
     def save(self, entry: HistoryEntry) -> None:
+        """Append a history entry and stamp the database-assigned id back onto entry."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(

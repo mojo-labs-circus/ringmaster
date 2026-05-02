@@ -22,6 +22,7 @@ def create_tables() -> None:
 
 
 def _create_auth_tables() -> None:
+    """Create users, refresh_tokens, and invites tables in auth.db if they don't exist."""
     connection = sqlite3.connect(os.path.join(DB_PATH, "auth.db"))
     cursor = connection.cursor()
 
@@ -64,6 +65,7 @@ def _create_auth_tables() -> None:
 
 
 def _create_tasks_tables() -> None:
+    """Create the tasks table in tasks.db if it doesn't exist."""
     connection = sqlite3.connect(os.path.join(DB_PATH, "tasks.db"))
     cursor = connection.cursor()
 
@@ -84,6 +86,7 @@ def _create_tasks_tables() -> None:
 
 
 def _create_history_tables() -> None:
+    """Create the history table in history.db if it doesn't exist."""
     connection = sqlite3.connect(os.path.join(DB_PATH, "history.db"))
     cursor = connection.cursor()
 

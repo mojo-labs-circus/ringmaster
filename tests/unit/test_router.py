@@ -30,8 +30,7 @@ def test_duplicate_intents_deduplicated():
 def test_tier_gate_hit_for_standard_user():
     model_output = '{"intents": ["code"], "detected_skills": []}'
     with patch("graph.nodes.router.stream_chat") as mock_stream_chat, \
-         patch("graph.nodes.router.get_history", return_value=[]), \
-         patch("graph.nodes.router.log_improvement"):
+         patch("graph.nodes.router.get_history", return_value=[]):
         mock_stream_chat.return_value = _make_result([model_output])
         result = router(STATE)
     assert result["tier_gate"] == ["code"]
@@ -48,20 +47,10 @@ def test_tier_gate_empty_for_admin():
 
 def test_exception_sets_error_on_state():
     with patch("graph.nodes.router.stream_chat") as mock_stream_chat, \
-         patch("graph.nodes.router.get_history", return_value=[]), \
-         patch("graph.nodes.router.log_improvement"):
+         patch("graph.nodes.router.get_history", return_value=[]):
         mock_stream_chat.side_effect = Exception("model down")
         result = router(STATE)
     assert "error" in result
-
-
-def test_exception_calls_log_improvement():
-    with patch("graph.nodes.router.stream_chat") as mock_stream_chat, \
-         patch("graph.nodes.router.get_history", return_value=[]), \
-         patch("graph.nodes.router.log_improvement") as mock_log:
-        mock_stream_chat.side_effect = Exception("model down")
-        router(STATE)
-    mock_log.assert_called_once_with("router_failure", "u1", "m1")
 
 
 def test_format_history_empty_returns_none():

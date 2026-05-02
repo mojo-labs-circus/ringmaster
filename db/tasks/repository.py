@@ -1,3 +1,8 @@
+"""db/tasks/repository.py
+Abstract base class defining the TaskRepository interface. Both
+SQLiteTaskRepository and PostgresTaskRepository implement this contract.
+"""
+
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -5,6 +10,12 @@ from db.tasks.models import Task
 
 
 class TaskRepository(ABC):
+    """Interface for task data operations.
+
+    All mutating methods return bool indicating whether the target row was found
+    and operated on. user_id is always checked inside the implementation to
+    prevent cross-user access — callers don't need to verify ownership separately.
+    """
 
     @abstractmethod
     def create_task(self, task: Task) -> Task:

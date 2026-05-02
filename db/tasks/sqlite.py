@@ -1,3 +1,8 @@
+"""db/tasks/sqlite.py
+SQLite implementation of TaskRepository. Connects per-method to avoid
+cross-thread connection sharing with FastAPI.
+"""
+
 import sqlite3
 from datetime import datetime
 
@@ -6,6 +11,7 @@ from db.tasks.repository import TaskRepository
 
 
 def _row_to_task(row: tuple) -> Task:
+    """Convert a raw SELECT row tuple to a Task dataclass."""
     return Task(
         id=row[0],
         user_id=row[1],
@@ -18,11 +24,15 @@ def _row_to_task(row: tuple) -> Task:
 
 
 class SQLiteTaskRepository(TaskRepository):
+    """TaskRepository backed by a local SQLite file at DB_PATH/tasks.db."""
 
     def __init__(self, db_path: str) -> None:
+        # Connection opened per method, not held open, to avoid SQLite's
+        # cross-thread connection issues with FastAPI.
         self.db_path = db_path
 
     def create_task(self, task: Task) -> Task:
+        """Insert a task row and stamp the database-assigned id back onto task."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -43,6 +53,7 @@ class SQLiteTaskRepository(TaskRepository):
         return task
 
     def get_task(self, task_id: int, user_id: str) -> Task | None:
+        """Return the Task for task_id owned by user_id, or None if not found or not owned."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -57,6 +68,7 @@ class SQLiteTaskRepository(TaskRepository):
         return _row_to_task(row)
 
     def list_tasks(self, user_id: str) -> list[Task]:
+        """Return all tasks for user_id, unsorted. Sorting is the caller's responsibility."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -69,6 +81,7 @@ class SQLiteTaskRepository(TaskRepository):
         return [_row_to_task(row) for row in rows]
 
     def update_task(self, task_id: int, user_id: str, title: str | None, priority: str | None, due_date: datetime | None) -> bool:
+        """Update whichever of title, priority, due_date are non-None. Returns True if found and updated."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -88,6 +101,7 @@ class SQLiteTaskRepository(TaskRepository):
         return updated
 
     def complete_task(self, task_id: int, user_id: str) -> bool:
+        """Set status to 'closed'. Returns True if found and updated."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
@@ -100,6 +114,7 @@ class SQLiteTaskRepository(TaskRepository):
         return updated
 
     def delete_task(self, task_id: int, user_id: str) -> bool:
+        """Permanently delete the task. Returns True if found and deleted."""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(

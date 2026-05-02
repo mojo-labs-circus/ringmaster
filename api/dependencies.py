@@ -1,3 +1,11 @@
+"""api/dependencies.py
+FastAPI dependency functions and shared types for request authentication.
+
+Provides two authentication paths: HTTP routes use a Bearer token in the
+Authorization header; WebSocket routes use a query parameter since WebSocket
+connections cannot set arbitrary headers.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -13,6 +21,13 @@ from db.auth.repository import AuthRepository
 
 @dataclass
 class ConnectedClient:
+    """Active WebSocket session — combines user identity, client context, and the socket.
+
+    Populated by get_connected_client_ws at connection time and registered in
+    connections.py so profile pushes can reach all active sessions for a user.
+    last_activity is updated on each received message.
+    """
+
     user: User
     client_type: str
     websocket: WebSocket

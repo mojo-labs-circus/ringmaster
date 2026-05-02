@@ -11,37 +11,26 @@ MESSAGES = [{"role": "user", "content": "hello"}]
 def test_happy_path_returns_correct_model_and_tokens():
     with patch("tools.llm._stream") as mock_stream:
         mock_stream.return_value = iter(["tok1", "tok2"])
-        result = stream_chat(PRIMARY_MODEL, MESSAGES, node="test", user_id="u1", message_id="m1")
+        result = stream_chat(PRIMARY_MODEL, MESSAGES)
 
     assert result.model == PRIMARY_MODEL
     assert list(result.tokens) == ["tok1", "tok2"]
 
 
 def test_primary_failure_attempts_fallback():
-    with patch("tools.llm._stream") as mock_stream, \
-         patch("tools.llm.log_improvement") as mock_log:
+    with patch("tools.llm._stream") as mock_stream:
         mock_stream.side_effect = [Exception("primary failed"), iter(["fb1", "fb2"])]
-        result = stream_chat(PRIMARY_MODEL, MESSAGES, node="test", user_id="u1", message_id="m1")
+        result = stream_chat(PRIMARY_MODEL, MESSAGES)
 
     assert result.model == FALLBACK_MODEL
     assert list(result.tokens) == ["fb1", "fb2"]
-    mock_log.assert_called_once_with(
-        "model_fallback",
-        "u1",
-        "m1",
-        node="test",
-        primary_model=PRIMARY_MODEL,
-        fallback_model=FALLBACK_MODEL,
-        failure_reason="Exception",
-    )
 
 
 def test_fallback_failure_propagates():
-    with patch("tools.llm._stream") as mock_stream, \
-         patch("tools.llm.log_improvement"):
+    with patch("tools.llm._stream") as mock_stream:
         mock_stream.side_effect = [Exception("primary failed"), Exception("fallback down")]
         with pytest.raises(Exception, match="fallback down"):
-            stream_chat(PRIMARY_MODEL, MESSAGES, node="test", user_id="u1", message_id="m1")
+            stream_chat(PRIMARY_MODEL, MESSAGES)
 
 
 def test_stream_yields_chunk_content():

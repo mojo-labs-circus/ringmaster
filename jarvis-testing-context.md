@@ -47,7 +47,6 @@ Fixtures return objects only — tests that need a user in the database insert e
 | `graph/nodes/planner.py` | `tests/unit/test_planner.py` | ✅ |
 | `tools/llm.py` | `tests/unit/test_llm.py` | ✅ |
 | `tools/history.py` | `tests/unit/test_history.py` | ✅ |
-| `tools/log.py` | `tests/unit/test_log.py` | ✅ |
 | `tools/tokens.py` | `tests/unit/test_tokens.py` | ✅ |
 | `notifications/notify.py` | `tests/unit/test_notify.py` | ✅ |
 | `api/connections.py` | `tests/unit/test_connections.py` | ✅ |

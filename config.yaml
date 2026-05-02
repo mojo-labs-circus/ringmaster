@@ -61,9 +61,6 @@ memory:
   chunk_size: 500
   chunk_overlap: 50
 
-improve:
-  log_path: "~/.jarvis/improve.jsonl"
-
 notify:
   cooldown_seconds: 600
 

@@ -1,3 +1,10 @@
+"""graph/nodes/planner.py
+PLANNER node — translates the classified intent list into a concrete
+list[Step] execution plan. Runs in two phases: LLM inference produces raw
+JSON, then Step construction validates required fields. Each phase has its
+own error path so failures are diagnosable.
+"""
+
 import json
 import logging
 
@@ -34,6 +41,23 @@ _BASE_PROMPT = (
 
 
 def planner(state: JarvisState) -> dict:
+    """Produce a step-by-step execution plan from the classified intents.
+
+    Two-phase execution: (1) LLM inference produces a raw JSON array, (2) Step
+    construction validates each element has the required fields. Phase 1 failure
+    (inference or JSON parse error) and Phase 2 failure (missing fields) produce
+    distinct error messages so failures are diagnosable.
+
+    Args:
+        state: Full JarvisState. Reads intent, detected_skills, engineered_message.
+
+    Returns:
+        dict with key "step_plan": list[Step] ready for ORCHESTRATOR.
+        On failure: {"error": str}, which routes the request to RESPONDER.
+
+    Side effects:
+        Logs an ERROR on both failure paths.
+    """
     intents_block = ", ".join(state["intent"]) or "conversation"
     skills_block = ", ".join(state["detected_skills"]) or "None"
 
@@ -44,10 +68,7 @@ def planner(state: JarvisState) -> dict:
     messages = [{"role": "user", "content": prompt}]
 
     try:
-        result = stream_chat(
-            PLANNER_MODEL, messages,
-            node="planner", user_id=state["user_id"], message_id=state["message_id"],
-        )
+        result = stream_chat(PLANNER_MODEL, messages)
         steps_data = json.loads("".join(result.tokens).strip())
     except Exception:
         logger.error("PLANNER inference or parse failed")

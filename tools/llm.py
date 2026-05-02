@@ -11,54 +11,57 @@ from typing import Generator
 from langchain_ollama import ChatOllama
 
 from config import FALLBACK_MODEL, OLLAMA_BASE_URL, OLLAMA_TIMEOUT
-from tools.log import log_improvement
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class StreamResult:
+    """Result from a stream_chat call.
+
+    model is the actual model used — may differ from the requested model if
+    fallback was triggered. tokens is a generator that yields str chunks as
+    they arrive from Ollama; it is not exhausted until iterated.
+    """
+
     model: str
     tokens: Generator
 
 
-def stream_chat(
-    model: str,
-    messages: list[dict],
-    *,
-    node: str,
-    user_id: str,
-    message_id: str,
-) -> StreamResult:
+def stream_chat(model: str, messages: list[dict]) -> StreamResult:
     """Stream a chat response from Ollama.
 
     Tries the requested model first. If it fails for any reason, retries once
     on FALLBACK_MODEL. If that also fails, raises the exception — the node is
     responsible for catching it and setting an error on state.
 
-    Returns a StreamResult so the caller always knows which model was actually
-    used — nodes can surface this in a status frame for admin users.
+    Args:
+        model: Primary model to call, from config.py (e.g. ROUTER_MODEL).
+        messages: List of {"role": ..., "content": ...} dicts to send.
+
+    Returns:
+        StreamResult with the actual model used and a token generator. model may
+        differ from the requested model if fallback was triggered.
+
+    Raises:
+        Exception: Whatever Ollama or LangChain throws, if both primary and
+            fallback fail.
     """
     try:
         return StreamResult(model=model, tokens=_stream(model, messages))
-    except Exception as exc:
+    except Exception:
         logger.warning("Model %s failed, retrying with fallback %s", model, FALLBACK_MODEL)
-        log_improvement(
-            "model_fallback",
-            user_id,
-            message_id,
-            node=node,
-            primary_model=model,
-            fallback_model=FALLBACK_MODEL,
-            failure_reason=type(exc).__name__,
-        )
 
     # Fallback attempt — let any exception propagate to the caller
     return StreamResult(model=FALLBACK_MODEL, tokens=_stream(FALLBACK_MODEL, messages))
 
 
 def _stream(model: str, messages: list[dict]) -> Generator[str, None, None]:
-    """Open a streaming connection to Ollama and yield tokens as they arrive."""
+    """Open a ChatOllama streaming session and yield content chunks.
+
+    Raises whatever exception Ollama or LangChain throws — stream_chat catches
+    the first failure and retries with the fallback model.
+    """
     llm = ChatOllama(model=model, base_url=OLLAMA_BASE_URL, timeout=OLLAMA_TIMEOUT)
     for chunk in llm.stream(messages):
         yield chunk.content

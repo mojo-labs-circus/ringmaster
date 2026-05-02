@@ -74,9 +74,6 @@ VAULT_BASE: str         = str(Path(_config["memory"]["vault_base"]).expanduser()
 CHUNK_SIZE: int         = _config["memory"]["chunk_size"]
 CHUNK_OVERLAP: int      = _config["memory"]["chunk_overlap"]
 
-# Improve log
-IMPROVE_LOG_PATH: str   = str(Path(_config["improve"]["log_path"]).expanduser())
-
 # Notify
 NOTIFY_COOLDOWN_SECONDS: int = _config["notify"]["cooldown_seconds"]
 

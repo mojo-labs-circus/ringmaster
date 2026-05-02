@@ -15,6 +15,14 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s — %(message)s"
 
 
 def configure_logging() -> None:
+    """Attach file and optional console log handlers to the root logger.
+
+    Creates the log directory if it does not exist. The console handler is
+    added only when SERVER_DEV is True — production writes to the rotating
+    file only. Called from both main.py (parent reloader process) and the
+    FastAPI lifespan (worker process) because uvicorn's reload mode spawns a
+    fresh child that does not inherit the parent's log handlers.
+    """
     Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
 
     file_handler = RotatingFileHandler(

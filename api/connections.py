@@ -17,6 +17,10 @@ _registry: dict[str, list[ConnectedClient]] = {}
 
 
 def register(user_id: str, client: ConnectedClient) -> None:
+    """Add a WebSocket connection to the registry for user_id.
+
+    Creates the list entry if this is the user's first active connection.
+    """
     if user_id not in _registry:
         _registry[user_id] = []
     _registry[user_id].append(client)
@@ -24,6 +28,11 @@ def register(user_id: str, client: ConnectedClient) -> None:
 
 
 def deregister(user_id: str, client: ConnectedClient) -> None:
+    """Remove a WebSocket connection from the registry.
+
+    Removes the user's key entirely when their last connection closes.
+    Safe to call with an unknown user_id.
+    """
     if user_id not in _registry:
         return
     _registry[user_id].remove(client)

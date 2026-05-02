@@ -16,6 +16,7 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 
 @router.get("", response_model=ProfileResponse)
 def get_profile(user: User = Depends(get_current_user)) -> ProfileResponse:
+    """Return the authenticated user's profile (username, tier, assistant_name)."""
     return ProfileResponse(
         username=user.username,
         tier=user.tier,
@@ -29,6 +30,11 @@ def update_profile(
     user: User = Depends(get_current_user),
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> ProfileResponse:
+    """Update the authenticated user's assistant name and return the updated profile.
+
+    Re-fetches from the DB after writing so the response reflects what was actually
+    stored rather than the request body.
+    """
     repo.update_assistant_name(user.username, body.assistant_name)
     # Re-fetch to guarantee the response reflects what's actually in the DB,
     # then delegate to get_profile to avoid duplicating the response construction

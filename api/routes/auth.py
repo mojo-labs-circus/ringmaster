@@ -47,6 +47,7 @@ _BRUTE_FORCE_WINDOW = timedelta(minutes=BRUTE_FORCE_WINDOW_MINUTES)
 
 
 def _hash_token(raw: str) -> str:
+    """Return the SHA-256 hex digest of a raw token. Raw tokens are never stored."""
     # SHA-256 — raw token is never stored, only this hash
     return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -64,6 +65,7 @@ def _build_access_token(user: User, client_type: str) -> tuple[str, str]:
 
 
 def _record_failed_attempt(ip: str) -> None:
+    """Record a failed login attempt from ip, dropping entries outside the rolling window."""
     now = datetime.now(timezone.utc)
     # Drop attempts outside the rolling window before counting
     _failed_attempts[ip] = [t for t in _failed_attempts[ip] if now - t < _BRUTE_FORCE_WINDOW]
@@ -80,10 +82,20 @@ def login(
     request: Request,
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> TokenResponse:
+    """Authenticate a user and issue access and refresh tokens.
+
+    Returns the same error for wrong username and wrong password to avoid
+    revealing which one failed. Disabled accounts get a distinct, descriptive
+    error so the user knows to contact the admin — UX over opacity for a family product.
+
+    Raises:
+        HTTPException 401: Invalid credentials or disabled account.
+    """
     ip = request.client.host
     user = repo.get_user(body.username)
 
-    # Same error for wrong username and wrong password — don't reveal which one failed
+    # Same error for wrong username and wrong password — don't reveal which one failed.
+    # Disabled accounts get a distinct message intentionally: UX > opacity for a family product.
     if user is None or not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
         _record_failed_attempt(ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -113,6 +125,15 @@ def refresh(
     body: RefreshRequest,
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> RefreshResponse:
+    """Exchange a valid refresh token for a new access token.
+
+    Re-reads tier, assistant_name, and token_version from the live DB record so
+    the new access token reflects any changes made since original login.
+
+    Raises:
+        HTTPException 401: Invalid, revoked, or expired refresh token; user not found
+            or disabled.
+    """
     stored = repo.get_refresh_token_by_hash(_hash_token(body.refresh_token))
 
     if stored is None or stored.revoked:
@@ -141,6 +162,7 @@ def logout(
     repo: AuthRepository = Depends(get_auth_repository),
     user: User = Depends(get_current_user),
 ) -> None:
+    """Revoke the refresh token for this device. Other active sessions are unaffected."""
     # Revoke this device's refresh token only — other devices stay active
     repo.revoke_refresh_token(_hash_token(body.refresh_token))
 
@@ -151,6 +173,16 @@ def invite(
     repo: AuthRepository = Depends(get_auth_repository),
     _: User = Depends(require_admin),
 ) -> InviteResponse:
+    """Generate a one-time invite or password reset token. Admin only.
+
+    The raw token is returned once in plaintext — it is never stored, only its
+    SHA-256 hash. The admin must share it with the recipient immediately.
+
+    Raises:
+        HTTPException 400: Invalid token type, missing required fields for invite,
+            or user not found for password_reset.
+        HTTPException 403: Caller is not an admin.
+    """
     if body.type not in ("invite", "password_reset"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token type")
 
@@ -180,6 +212,14 @@ def register(
     body: RegisterRequest,
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> None:
+    """Create a new user account using a valid invite token.
+
+    The invite is marked used after user creation — if create_user fails, the
+    invite remains valid so the user can retry.
+
+    Raises:
+        HTTPException 400: Invalid, already-used, wrong-type, or expired invite token.
+    """
     stored_invite = repo.get_invite_by_hash(_hash_token(body.token))
 
     if stored_invite is None or stored_invite.used or stored_invite.type != "invite":
@@ -207,6 +247,16 @@ def reset_password(
     body: ResetRequest,
     repo: AuthRepository = Depends(get_auth_repository),
 ) -> None:
+    """Reset a user's password using a valid password_reset token.
+
+    Re-enables a disabled account after the reset so the user can log back in.
+    The token is marked used after both updates — if either fails, the token
+    remains valid for retry.
+
+    Raises:
+        HTTPException 400: Invalid, already-used, wrong-type, or expired token;
+            user not found; new password matches the current one.
+    """
     stored = repo.get_invite_by_hash(_hash_token(body.token))
 
     if stored is None or stored.used or stored.type != "password_reset":
@@ -236,6 +286,11 @@ def change_password(
     repo: AuthRepository = Depends(get_auth_repository),
     user: User = Depends(get_current_user),
 ) -> None:
+    """Self-service password change. Requires the current password to proceed.
+
+    Raises:
+        HTTPException 401: Current password is incorrect.
+    """
     if not bcrypt.checkpw(body.current_password.encode(), user.password_hash.encode()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password incorrect")
 

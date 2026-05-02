@@ -1,8 +1,16 @@
+"""db/auth/postgres.py
+Postgres implementation of AuthRepository. Stub only — all methods raise
+NotImplementedError. Full implementation is deferred to the server deployment
+milestone when the database backend switches from SQLite.
+"""
+
 from db.auth.models import Invite, RefreshToken, User
 from db.auth.repository import AuthRepository
 
 
 class PostgresAuthRepository(AuthRepository):
+    """AuthRepository backed by Postgres. Stub only — raises NotImplementedError on all methods."""
+
     # Full implementation deferred to Phase 5 — SQLite is the dev backend until then
 
     # --- Users ---

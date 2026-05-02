@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """FastAPI lifespan — runs once per worker process on startup and shutdown.
+
+    Re-configures logging inside the worker because uvicorn's reload mode spawns
+    a fresh process that does not inherit the parent's log handlers. Creates SQLite
+    tables on first run when DB_BACKEND is sqlite.
+    """
     # Configure logging inside the worker process — required because uvicorn's
     # reload mode spawns a child process that imports the app fresh, and logging
     # set up in main.py only applies to the parent reloader process.
@@ -41,6 +47,11 @@ app.include_router(tasks_router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unhandled exceptions in HTTP routes.
+
+    Logs the full traceback for the file log, notifies admin, and returns a
+    generic 500 so internal details are not leaked to the client.
+    """
     # Log the full traceback for the file log, then ping admin.
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     notify_admin(type(exc).__name__, str(exc))
@@ -49,4 +60,5 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 @app.get("/health")
 async def health() -> dict:
+    """Liveness check. Returns 200 OK when the server process is up."""
     return {"status": "ok"}

@@ -34,6 +34,31 @@ async def chat_ws(
     auth_repo: AuthRepository = Depends(get_auth_repository),
     history_repo: HistoryRepository = Depends(get_history_repository),
 ) -> None:
+    """WebSocket endpoint for the JARVIS chat interface.
+
+    Manages the full lifecycle of a WebSocket session: auth verification,
+    connection registry, graph invocation, frame streaming, and history writes.
+
+    Uses a reader/processor split to handle concurrent messages safely. The
+    reader task owns all WebSocket reads; the processor owns all graph calls
+    and frame sends. A depth-1 pending buffer means last-message-wins when
+    the processor is busy — the client gets a "One moment..." status frame.
+
+    token_version is re-checked on every message (not just at connect time) to
+    catch forced deauth mid-session without requiring a reconnect.
+
+    History is written before the done frame so continuity is guaranteed even
+    if the process crashes immediately after. assembled_response is stored
+    (not current_input) because RESPONDER always produces clean markdown that
+    is safe to feed back into Ollama context on the next request.
+
+    Frames sent (all typed JSON with message_id):
+        token   — streaming content chunk from an LLM call
+        status  — node entry or mid-node status message
+        done    — graph complete, includes refresh list
+        error   — graph error or session invalidation
+        profile — pushed when assistant_name or tier changes (via connections.py)
+    """
     await websocket.accept()
 
     user = client.user

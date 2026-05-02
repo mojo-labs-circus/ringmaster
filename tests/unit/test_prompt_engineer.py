@@ -35,21 +35,3 @@ def test_correct_model_passed():
         prompt_engineer(STATE)
     # call_args[0] is positional args tuple — [0] is the model name
     assert mock_stream_chat.call_args[0][0] == PROMPT_ENGINEER_MODEL
-
-
-def test_node_kwarg_passed():
-    with patch("graph.nodes.prompt_engineer.stream_chat") as mock_stream_chat:
-        mock_stream_chat.return_value = _make_result(["ok"])
-        prompt_engineer(STATE)
-    # call_args[1] is the kwargs dict
-    assert mock_stream_chat.call_args[1]["node"] == "prompt_engineer"
-
-
-def test_user_id_and_message_id_forwarded():
-    with patch("graph.nodes.prompt_engineer.stream_chat") as mock_stream_chat:
-        mock_stream_chat.return_value = _make_result(["ok"])
-        prompt_engineer(STATE)
-    # call_args[1] is the kwargs dict
-    kwargs = mock_stream_chat.call_args[1]
-    assert kwargs["user_id"] == "u1"
-    assert kwargs["message_id"] == "m1"

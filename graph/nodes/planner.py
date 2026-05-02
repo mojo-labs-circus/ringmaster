@@ -25,8 +25,8 @@ _BASE_PROMPT = (
     "- Must be null for all non-skill intent steps\n"
     "- For skill intent steps, must be a name from the detected skills list — never invent a name\n\n"
     "Output a JSON array only — no labels, no explanation, no preamble.\n"
-    'Example: [{"id": "add_milk", "intent": "tasks", "skill_name": null, '
-    '"description": "Add milk to the task list", "depends_on": []}]\n\n'
+    'Example: [{{"id": "add_milk", "intent": "tasks", "skill_name": null, '
+    '"description": "Add milk to the task list", "depends_on": []}}]\n\n'
     "Classified intents: {intents_block}\n\n"
     "Detected skills: {skills_block}\n\n"
     "User message: "

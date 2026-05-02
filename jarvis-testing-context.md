@@ -42,10 +42,10 @@ Fixtures return objects only — tests that need a user in the database insert e
 
 | Source file | Test file | Status |
 |---|---|---|
-| `graph/nodes/prompt_engineer.py` | `tests/unit/test_prompt_engineer.py` | ❌ |
-| `graph/nodes/router.py` | `tests/unit/test_router.py` | ❌ |
-| `graph/nodes/planner.py` | `tests/unit/test_planner.py` | ❌ |
-| `tools/llm.py` | `tests/unit/test_llm.py` | ❌ |
+| `graph/nodes/prompt_engineer.py` | `tests/unit/test_prompt_engineer.py` | ✅ |
+| `graph/nodes/router.py` | `tests/unit/test_router.py` | ✅ |
+| `graph/nodes/planner.py` | `tests/unit/test_planner.py` | ✅ |
+| `tools/llm.py` | `tests/unit/test_llm.py` | ✅ |
 | `tools/history.py` | `tests/unit/test_history.py` | ✅ |
 | `tools/log.py` | `tests/unit/test_log.py` | ✅ |
 | `tools/tokens.py` | `tests/unit/test_tokens.py` | ✅ |

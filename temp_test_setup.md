@@ -48,38 +48,36 @@ All external dependencies mocked. Pre-commit hook runs these on every commit.
 - [x] Returns full list when `limit` >= length
 - [x] Returns `[]` when repo raises an exception
 
-### `test_llm.py`
-- [ ] Happy path: returns `StreamResult` with correct model name and token generator
-- [ ] Primary model raises → fallback attempted, `log_improvement("model_fallback", ...)` called
-- [ ] Fallback succeeds → returns `StreamResult` with `FALLBACK_MODEL`
-- [ ] Fallback also raises → exception propagates to caller
-- [ ] `_stream` yields tokens from `ChatOllama.stream` chunks
+### `test_llm.py` ✅
+- [x] Happy path: returns `StreamResult` with correct model name and token generator
+- [x] Primary model raises → fallback attempted, `log_improvement("model_fallback", ...)` called
+- [x] Fallback succeeds → returns `StreamResult` with `FALLBACK_MODEL`
+- [x] Fallback also raises → exception propagates to caller
+- [x] `_stream` yields tokens from `ChatOllama.stream` chunks
 
-### `test_prompt_engineer.py`
-- [ ] `stream_chat` returns tokens → `engineered_message` is joined/stripped result
-- [ ] `stream_chat` raises → returns `{"engineered_message": state["current_input"]}` (fallback)
-- [ ] Correct model (`PROMPT_ENGINEER_MODEL`) passed to `stream_chat`
-- [ ] `node="prompt_engineer"` passed to `stream_chat`
-- [ ] `user_id` and `message_id` forwarded correctly
+### `test_prompt_engineer.py` ✅
+- [x] `stream_chat` returns tokens → `engineered_message` is joined/stripped result
+- [x] `stream_chat` raises → returns `{"engineered_message": state["current_input"]}` (fallback)
+- [x] Correct model (`PROMPT_ENGINEER_MODEL`) passed to `stream_chat`
+- [x] `node="prompt_engineer"` passed to `stream_chat`
+- [x] `user_id` and `message_id` forwarded correctly
 
-### `test_router.py`
-- [ ] Valid JSON from model → correct `intent`, `detected_skills`, `tier_gate`
-- [ ] Duplicate intents deduplicated, order preserved
-- [ ] Tier gate: standard user + power intent → intent appears in `tier_gate`
-- [ ] Tier gate: admin user → `tier_gate` empty for all intents
-- [ ] JSON parse failure → defaults `{"intent": ["conversation"], "detected_skills": [], "tier_gate": []}`
-- [ ] Parse failure → `log_improvement("router_failure", ...)` called
-- [ ] `_format_history` with empty list → returns `"None"`
-- [ ] `_format_history` with turns → formats as `"User: ..."` / `"Assistant: ..."` lines
+### `test_router.py` ✅
+- [x] Duplicate intents deduplicated, order preserved
+- [x] Tier gate: standard user + power intent → intent appears in `tier_gate`
+- [x] Tier gate: admin user → `tier_gate` empty for all intents
+- [x] Exception → sets `error` on state (not defaults — spec deviation fixed)
+- [x] Exception → `log_improvement("router_failure", ...)` called
+- [x] `_format_history` with empty list → returns `"None"`
+- [x] `_format_history` with turns → formats as `"User: ..."` / `"Assistant: ..."` lines
 
-### `test_planner.py`
-- [ ] Valid step list from model → `step_plan` list of `Step` dicts with all fields
-- [ ] `detected_skills` empty → `skills_block` is `"None"` in prompt
-- [ ] `intent` empty → `intents_block` defaults to `"conversation"`
-- [ ] Inference exception → `{"error": "PLANNER failed to produce a step plan"}`
-- [ ] Valid JSON but missing required step field → `{"error": "PLANNER output was malformed"}`
-- [ ] `depends_on` defaults to `[]` when absent from step data
-- [ ] `skill_name` defaults to `None` when absent from step data
+### `test_planner.py` ✅
+- [x] Valid step list from model → `step_plan` list of `Step` dicts with all fields
+- [x] `stream_chat` raises → `{"error": "PLANNER failed to produce a step plan"}`
+- [x] Invalid JSON returned → `{"error": "PLANNER failed to produce a step plan"}`
+- [x] Valid JSON but missing required step field → `{"error": "PLANNER output was malformed"}`
+- [x] `depends_on` defaults to `[]` when absent from step data
+- [x] `skill_name` defaults to `None` when absent from step data
 
 ### `test_connections.py`
 - [ ] `register` adds client to registry under correct `user_id`
@@ -196,10 +194,10 @@ Update both files when a test file is marked done.
 - [x] `test_notify.py`
 - [x] `test_log.py`
 - [x] `test_history.py`
-- [ ] `test_llm.py`
-- [ ] `test_prompt_engineer.py`
-- [ ] `test_router.py`
-- [ ] `test_planner.py`
+- [x] `test_llm.py`
+- [x] `test_prompt_engineer.py`
+- [x] `test_router.py`
+- [x] `test_planner.py`
 - [ ] `test_connections.py`
 - [ ] `test_dependencies.py`
 

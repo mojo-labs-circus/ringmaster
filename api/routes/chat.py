@@ -49,8 +49,8 @@ async def chat_ws(
 
     Write both turns before the done frame — guarantees continuity if the process
     crashes after this point. For the assistant turn, assembled_response is stored
-     rather than an intermediate (e.g. step_response) because RESPONDER always
-     produces clean markdown that is safe to feed back into Ollama context.
+    rather than an intermediate (e.g. step_response) because RESPONDER always
+    produces clean markdown that is safe to feed back into Ollama context.
 
     Frames sent (all typed JSON with message_id):
         token   — streaming content chunk from an LLM call

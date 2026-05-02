@@ -35,7 +35,7 @@ The server maintains a connection registry — a dict mapping `user_id` to a lis
 }
 ```
 
-`client_type` is included so the RESPONDER node always knows what it is talking to without an extra lookup. Valid values: `tui | web | mobile`.
+`client_type` is included so the RESPONDER node always knows what it is talking to without an extra lookup. Valid values: `tui | web` (Mk1). More added in Mk3.
 
 `token_version` is validated against the database on every request. If the stored version is higher than the token's version, the token is rejected and the client must refresh. This allows immediate forced invalidation without waiting for token expiry.
 

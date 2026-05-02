@@ -199,7 +199,7 @@ Update both files when a test file is marked done.
 - [x] `test_router.py`
 - [x] `test_planner.py`
 - [x] `test_connections.py`
-- [ ] `test_dependencies.py`
+- [x] `test_dependencies.py`
 
 ### Integration
 - [ ] `test_auth_sqlite.py`

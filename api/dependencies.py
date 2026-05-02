@@ -94,7 +94,7 @@ def get_connected_client_ws(
     payload = _decode_token(token, status.HTTP_403_FORBIDDEN)
 
     client_type: str | None = payload.get("client_type")
-    if client_type not in ("tui", "web", "mobile"):
+    if client_type not in ("tui", "web"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid client_type")
 
     user = _get_user_from_payload(payload, repo, status.HTTP_403_FORBIDDEN)

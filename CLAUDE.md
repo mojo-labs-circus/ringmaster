@@ -2,7 +2,7 @@
 > **Session start:** Read `CLAUDE.md` (this file), `jarvis-dev-context.md`, and `jarvis-testing-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-Mk1 — Test suite. Unit tests complete: test_tokens.py, test_notify.py, test_log.py, test_history.py, test_llm.py, test_prompt_engineer.py, test_router.py, test_planner.py, test_connections.py — all passing. Next: test_dependencies.py. Full plan and per-file checklists in temp_test_setup.md.
+Mk1 — Test suite. All unit tests complete. Next: integration tests — start with test_auth_sqlite.py. Full plan and per-file checklists in temp_test_setup.md.
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the Mk1 checklist.

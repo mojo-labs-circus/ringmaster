@@ -94,7 +94,7 @@ class JarvisState(TypedDict):
     # Identity — populated by FastAPI before invocation
     user_id: str                    # always present, never None — hardcoded to "clarkehines" in dev
     tier: str                       # "admin" | "power" | "standard" — populated by FastAPI from live DB record
-    client_type: str                # "tui" | "web" | "mobile"
+    client_type: str                # "tui" | "web" (Mk1); more added in Mk3
     assistant_name: str             # per-user, populated by FastAPI from live DB record; client fetches via GET /profile and caches locally
     message_id: str                 # from the client message envelope — forwarded by FastAPI at invocation start. Used by chat.py for all frame building (token, done, error, status, confirm_request, truncate, retract) and by graph nodes that write improvement log events.
 

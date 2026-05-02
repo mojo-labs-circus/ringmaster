@@ -47,10 +47,10 @@ async def chat_ws(
     token_version is re-checked on every message (not just at connect time) to
     catch forced deauth mid-session without requiring a reconnect.
 
-    History is written before the done frame so continuity is guaranteed even
-    if the process crashes immediately after. assembled_response is stored
-    (not current_input) because RESPONDER always produces clean markdown that
-    is safe to feed back into Ollama context on the next request.
+    Write both turns before the done frame — guarantees continuity if the process
+    crashes after this point. For the assistant turn, assembled_response is stored
+     rather than an intermediate (e.g. step_response) because RESPONDER always
+     produces clean markdown that is safe to feed back into Ollama context.
 
     Frames sent (all typed JSON with message_id):
         token   — streaming content chunk from an LLM call
@@ -217,10 +217,10 @@ async def chat_ws(
                 if final_state is None:
                     raise RuntimeError("Graph completed without final state")
 
-                # Write history before done frame — guarantees continuity if the process
-                # crashes after this point. A single SQL INSERT, negligible latency.
-                # Store assembled_response: RESPONDER always produces clean markdown, which
-                # is safe to feed back into Ollama context on the next request.
+                # Write both turns before the done frame — guarantees continuity if the
+                # process crashes after this point. For the assistant turn, assembled_response
+                # is stored rather than an intermediate (e.g. step_response) because RESPONDER
+                # always produces clean markdown that is safe to feed back into Ollama context.
                 now = datetime.now(timezone.utc)
                 history_repo.save(HistoryEntry(
                     id=None,

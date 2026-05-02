@@ -29,7 +29,7 @@ _BASE_PROMPT = (
     "If the user's message matches a listed skill, add \"skill\" to the intents list and "
     "add the skill name to detected_skills. If no skills are listed or none match, "
     "detected_skills must be empty.\n\n"
-    'Output format — strictly JSON, nothing else:\n{"intents": ["conversation"], "detected_skills": []}\n\n'
+    'Output format — strictly JSON, nothing else:\n{{"intents": ["conversation"], "detected_skills": []}}\n\n'
     "Recent conversation history:\n"
     "{history_block}\n\n"
     "Current message: "
@@ -66,9 +66,9 @@ def router(state: JarvisState) -> dict:
         )
         parsed = json.loads("".join(result.tokens).strip())
     except Exception:
-        logger.error("ROUTER failed — defaulting to conversation")
+        logger.error("ROUTER failed")
         log_improvement("router_failure", state["user_id"], state["message_id"])
-        return {"intent": ["conversation"], "detected_skills": [], "tier_gate": []}
+        return {"error": "ROUTER failed to classify your message"}
 
     intents = list(dict.fromkeys(parsed.get("intents", ["conversation"])))
     detected_skills = parsed.get("detected_skills", [])

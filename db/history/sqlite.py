@@ -1,9 +1,18 @@
 import sqlite3
+from datetime import datetime
 
-from config import CONTEXT_WINDOW_BUDGET
 from db.history.models import HistoryEntry
 from db.history.repository import HistoryRepository
-from tools.tokens import count_tokens
+
+
+def _row_to_entry(row: tuple) -> HistoryEntry:
+    return HistoryEntry(
+        id=row[0],
+        user_id=row[1],
+        role=row[2],
+        content=row[3],
+        created_at=datetime.fromisoformat(row[4]),
+    )
 
 
 class SQLiteHistoryRepository(HistoryRepository):
@@ -13,33 +22,18 @@ class SQLiteHistoryRepository(HistoryRepository):
         # to avoid SQLite's cross-thread connection issues with FastAPI.
         self.db_path = db_path
 
-    def load(self, user_id: str) -> list[dict]:
+    def load(self, user_id: str) -> list[HistoryEntry]:
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         cursor.execute(
-            "SELECT role, content FROM history "
+            "SELECT id, user_id, role, content, created_at FROM history "
             "WHERE user_id = ? "
             "ORDER BY created_at ASC",
             (user_id,),
         )
         rows = cursor.fetchall()
         connection.close()
-
-        messages = [{"role": row[0], "content": row[1]} for row in rows]
-
-        # Walk newest-first, accumulate token count, drop oldest entries that
-        # would push us over the budget. Reversed at the end to restore
-        # chronological order for the model.
-        kept = []
-        total = 0
-        for message in reversed(messages):
-            cost = count_tokens(message["role"] + message["content"])
-            if total + cost > CONTEXT_WINDOW_BUDGET:
-                break
-            kept.append(message)
-            total += cost
-
-        return list(reversed(kept))
+        return [_row_to_entry(row) for row in rows]
 
     def save(self, entry: HistoryEntry) -> None:
         connection = sqlite3.connect(self.db_path)

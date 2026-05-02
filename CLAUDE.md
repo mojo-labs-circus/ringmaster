@@ -2,7 +2,11 @@
 > **Session start:** Read `CLAUDE.md` (this file), `jarvis-dev-context.md`, and `jarvis-testing-context.md` before doing anything else. The spec lives in `spec/` — read only the files relevant to the current task.
 
 ## Current Task
-Mk1 — Test suite. All unit tests complete. Next: integration tests — start with test_auth_sqlite.py. Full plan and per-file checklists in temp_test_setup.md.
+Mk1 — Naming conventions pass complete (see session log). Two things queued for next session, in order:
+1. Documentation pass — add docstrings to every file, class, and function across the codebase
+2. Manual graph output tests — scripts in `scripts/` to run each node against real Ollama and inspect output, verifying the graph flow is correct before wiring more nodes
+
+Integration tests are next after that — start with `test_auth_sqlite.py`.
 
 ## Session Rules
 - Commit and push after every completed bulletpoint on the Mk1 checklist.

@@ -5,6 +5,18 @@ from db.tasks.models import Task
 from db.tasks.repository import TaskRepository
 
 
+def _row_to_task(row: tuple) -> Task:
+    return Task(
+        id=row[0],
+        user_id=row[1],
+        title=row[2],
+        status=row[3],
+        priority=row[4],
+        due_date=datetime.fromisoformat(row[5]) if row[5] else None,
+        created_at=datetime.fromisoformat(row[6]),
+    )
+
+
 class SQLiteTaskRepository(TaskRepository):
 
     def __init__(self, db_path: str) -> None:
@@ -98,15 +110,3 @@ class SQLiteTaskRepository(TaskRepository):
         deleted = cursor.rowcount > 0
         connection.close()
         return deleted
-
-
-def _row_to_task(row: tuple) -> Task:
-    return Task(
-        id=row[0],
-        user_id=row[1],
-        title=row[2],
-        status=row[3],
-        priority=row[4],
-        due_date=datetime.fromisoformat(row[5]) if row[5] else None,
-        created_at=datetime.fromisoformat(row[6]),
-    )

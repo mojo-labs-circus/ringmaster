@@ -1,4 +1,4 @@
-"""api/auth.py
+"""api/routes/auth.py
 Auth endpoints — login, refresh, logout, invite, register.
 Gets its repository via Depends(get_auth_repository) — never constructs it directly.
 """

@@ -6,9 +6,9 @@ from db.history.models import HistoryEntry
 class HistoryRepository(ABC):
 
     @abstractmethod
-    def load(self, user_id: str) -> list[dict]:
-        # Returns recent history as [{"role": ..., "content": ...}, ...] in chronological order.
-        # Bounded by CONTEXT_WINDOW_BUDGET tokens — oldest entries dropped first.
+    def load(self, user_id: str) -> list[HistoryEntry]:
+        # Returns all history for user_id in chronological order.
+        # Token budget enforcement and message formatting are the caller's responsibility.
         ...
 
     @abstractmethod

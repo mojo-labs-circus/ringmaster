@@ -198,7 +198,7 @@ Update both files when a test file is marked done.
 - [x] `test_prompt_engineer.py`
 - [x] `test_router.py`
 - [x] `test_planner.py`
-- [ ] `test_connections.py`
+- [x] `test_connections.py`
 - [ ] `test_dependencies.py`
 
 ### Integration

@@ -46,5 +46,5 @@ def prompt_engineer(state: JarvisState) -> dict:
         engineered = "".join(result.tokens).strip()
         return {"engineered_message": engineered}
     except Exception:
-        logger.warning("PROMPT_ENGINEER inference failed — passing through current_input unchanged")
+        logger.warning("PROMPT_ENGINEER inference failed — passing through current_input unchanged", exc_info=True)
         return {"engineered_message": state["current_input"]}

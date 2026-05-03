@@ -10,7 +10,7 @@ import logging
 
 from config import PLANNER_MODEL
 from graph.state import JarvisState, Step
-from tools.llm import stream_chat
+from tools.llm import stream_chat, extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +69,9 @@ def planner(state: JarvisState) -> dict:
 
     try:
         result = stream_chat(PLANNER_MODEL, messages)
-        steps_data = json.loads("".join(result.tokens).strip())
+        steps_data = json.loads(extract_json("".join(result.tokens)))
     except Exception:
-        logger.error("PLANNER inference or parse failed")
+        logger.error("PLANNER inference or parse failed", exc_info=True)
         return {"error": "PLANNER failed to produce a step plan"}
 
     try:

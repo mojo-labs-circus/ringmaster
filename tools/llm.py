@@ -56,6 +56,24 @@ def stream_chat(model: str, messages: list[dict]) -> StreamResult:
     return StreamResult(model=FALLBACK_MODEL, tokens=_stream(FALLBACK_MODEL, messages))
 
 
+def extract_json(text: str) -> str:
+    """Extract the JSON value from LLM output.
+
+    Handles fences, leading prose, and trailing prose by slicing directly
+    to the outermost { } or [ ] boundary.
+    """
+    brace = text.find("{")
+    bracket = text.find("[")
+
+    if brace == -1 and bracket == -1:
+        return text
+
+    if brace == -1 or (bracket != -1 and bracket < brace):
+        return text[bracket : text.rfind("]") + 1]
+    else:
+        return text[brace : text.rfind("}") + 1]
+
+
 def _stream(model: str, messages: list[dict]) -> Generator[str, None, None]:
     """Open a ChatOllama streaming session and yield content chunks.
 

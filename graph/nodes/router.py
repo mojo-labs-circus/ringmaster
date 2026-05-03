@@ -15,7 +15,7 @@ from config import (
 )
 from graph.state import JarvisState
 from tools.history import get_history
-from tools.llm import stream_chat
+from tools.llm import stream_chat, extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,10 @@ _BASE_PROMPT = (
     "You are a routing node. Your job is to read a user message and classify it into "
     "one or more intents. Output only a JSON object — no labels, no explanation, no preamble.\n\n"
     "Available intents:\n"
-    '- "conversation" — general chat, general knowledge questions, and anything that does not fit another intent\n'
-    '- "tasks" — creating, updating, completing, listing, or deleting tasks and to-dos\n'
+    '- "conversation" — general chat, general knowledge questions, and synthesizing or explaining information from other nodes (e.g. summarizing web search results). Include this when the user asks to be told about something, not just when data is being fetched or an action is being taken.\n'
+    '- "tasks" — creating, updating, completing, listing, or deleting tasks and to-dos. Include this even when the task is conditional on another result (e.g. "add X if Y is true").\n'
     '- "memory" — explicit requests to query, recall, update, or delete personal information and facts that were previously stored\n'
-    '- "web" — requests requiring live or up-to-date data: current weather, breaking news, live prices, recent events. Not general knowledge questions.\n\n'
+    '- "web" — fetching live or up-to-date data: current weather, breaking news, live prices, recent events. Use this when live data must be retrieved. Does not imply a spoken response.\n\n'
     "If the user's message matches one of the available intents, add it to the intents list. "
     "A message may have more than one intent.\n\n"
     "Available skills (may be empty):\n"
@@ -93,9 +93,9 @@ def router(state: JarvisState) -> dict:
 
     try:
         result = stream_chat(ROUTER_MODEL, messages)
-        parsed = json.loads("".join(result.tokens).strip())
+        parsed = json.loads(extract_json("".join(result.tokens)))
     except Exception:
-        logger.error("ROUTER failed")
+        logger.error("ROUTER failed", exc_info=True)
         return {"error": "ROUTER failed to classify your message"}
 
     intents = list(dict.fromkeys(parsed.get("intents", ["conversation"])))

@@ -159,6 +159,16 @@ When Jarvis proposes content before sending (email, message, calendar event), th
 ### Post-stream correctness watcher
 A second concurrent task alongside CONSTITUTIONAL that checks factual correctness of RESPONDER's output after the stream completes — not ethics violations, but factual errors, hallucinations, or claims that contradict the user's known context. Would run post-stream only (retract path) since correctness can only be evaluated on the complete response. Lower priority than ethics checking; only worth adding once the platform is stable and CONSTITUTIONAL is well-validated. Could log to the improve log as a new event type for fine-tuning signal.
 
+### Autonomous self-improvement loop
+Jarvis runs overnight as an autonomous agent to improve its own graph behaviour — refining intent descriptions, validating that generated DAGs are correct, and modifying planner prompts where it detects systematic failures. Rather than waiting for a user to notice that routing went wrong, Jarvis observes its own outputs, identifies patterns (e.g. `tasks` intent consistently dropped on conditional requests), proposes and applies fixes, and logs what changed and why.
+
+Key open problems to solve before this is viable:
+- **Correctness definition** — what does a "correct DAG" mean formally? The loop needs an evaluator, not just a generator.
+- **Scope guardrails** — define exactly which files and prompts Jarvis is allowed to touch unsupervised. Changes outside that scope require user approval.
+- **Audit trail** — every self-modification logged with before/after and the reasoning, so the user can review and roll back.
+
+The groundwork is the clean intent description contract being built now — the self-improvement loop automates what is currently manual prompt tuning.
+
 ### Multimodal file input
 Two distinct use cases:
 1. **In-chat attachment** — user attaches a file to a message and Jarvis processes it in context (read, summarise, reason over it). Text and code files first, then images, then audio/video.

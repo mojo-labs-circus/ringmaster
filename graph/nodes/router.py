@@ -23,10 +23,10 @@ _BASE_PROMPT = (
     "You are a routing node. Your job is to read a user message and classify it into "
     "one or more intents. Output only a JSON object — no labels, no explanation, no preamble.\n\n"
     "Available intents:\n"
-    '- "conversation" — general chat, questions, anything that does not fit another intent\n'
+    '- "conversation" — general chat, general knowledge questions, and anything that does not fit another intent\n'
     '- "tasks" — creating, updating, completing, listing, or deleting tasks and to-dos\n'
-    '- "memory" — explicit requests to query, recall, or delete stored memories\n'
-    '- "web" — requests that require searching the internet for current information\n\n'
+    '- "memory" — explicit requests to query, recall, update, or delete personal information and facts that were previously stored\n'
+    '- "web" — requests requiring live or up-to-date data: current weather, breaking news, live prices, recent events. Not general knowledge questions.\n\n'
     "If the user's message matches one of the available intents, add it to the intents list. "
     "A message may have more than one intent.\n\n"
     "Available skills (may be empty):\n"

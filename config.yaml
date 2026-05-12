@@ -1,0 +1,116 @@
+models:
+  router:          "mistral:7b"
+  prompt_engineer: "qwen2.5:14b"
+  planner:         "qwen2.5:14b"
+  decomposer:      "qwen2.5:14b"
+  conversation:    "qwen2.5:14b"
+  tasks:           "qwen2.5:14b"
+  memory:          "qwen2.5:14b"
+  web:             "qwen2.5:14b"
+  system:          "qwen2.5:14b"
+  responder:       "qwen2.5:14b"
+  code:            "deepseek-coder-v2:16b"
+  constitutional:  "mistral:7b"
+  skills:          "qwen2.5:14b"
+  memory_check:    "mistral:7b"
+  embedding:       "nomic-embed-text"
+  fallback:        "mistral:7b"
+  multimodal:      ""            # placeholder — full system: llava:13b (Phase 9)
+
+ollama:
+  base_url: "http://localhost:11434"
+  timeout: 120
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  dev: true
+
+auth:
+  access_token_expire_hours: 24
+  refresh_token_expire_days: 90
+  invite_expire_hours: 48
+  brute_force_limit: 5        # failed login attempts before admin is notified
+  brute_force_window_minutes: 10
+
+db:
+  path: "~/.jarvis"  # dev only — SQLite files written here. Ignored when JARVIS_DB_BACKEND=postgres.
+
+history:
+  context_window_budget: 16000
+  history_limits:
+    router:       5
+    conversation: 20
+    tasks:        10
+    memory:       10
+    web:          5
+    code:         10
+
+maintenance:
+  retention_days: 90
+  log_error_threshold: 50
+  idle_threshold_minutes: 10
+
+logging:
+  path: "~/.jarvis/jarvis.log"
+  max_bytes: 10485760  # 10 MB
+  backup_count: 5
+
+memory:
+  vault_base: "~/.jarvis/vault"  # dev (nomadbaker) — pearlybaker: /mnt/hdd/jarvis, server: /tank/docker/jarvis/vaults
+  chunk_size: 500
+  chunk_overlap: 50
+
+notify:
+  cooldown_seconds: 600
+
+tokens:
+  chars_per_token: 4
+
+admin:
+  contact: "Clarke"
+
+skills:
+  shared_approved_path: "~/.jarvis/skills/approved"  # dev — full system: /mnt/hdd/jarvis/shared/05-skills/approved
+
+system:
+  allowed_paths:
+    - "~/projects"
+    - "/tmp"
+
+coding_team:
+  max_review_iterations: 3
+
+intent_tiers:
+  conversation: standard
+  tasks: standard
+  memory: standard
+  web: standard
+  skill: standard
+  code: power
+  system: power
+
+tier_gate_messages:
+  system: >-
+    Shell access lets me run commands directly on your device — things like moving files,
+    changing settings, or running scripts. Because some commands can permanently delete data
+    or break things in ways that are hard to undo, this feature requires a quick walkthrough
+    before it's switched on. Ask Clarke to get set up.
+  code: >-
+    Code execution lets me write and run programs on your device. To keep things safe it
+    requires a short intro to how the sandbox works and what to expect. Ask Clarke to get
+    set up.
+
+status_messages:
+  prompt_engineer: ""
+  router: "Thinking..."
+  planner: ""
+  decomposer: ""
+  orchestrator: ""
+  conversation: ""
+  memory: ""
+  web: "Searching the web..."
+  tasks: ""
+  system: ""
+  code: ""
+  responder: ""

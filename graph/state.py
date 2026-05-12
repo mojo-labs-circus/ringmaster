@@ -2,14 +2,89 @@
 Defines the state object that flows through the entire JARVIS graph.
 
 Every node receives this state, does its work, and returns a dict
-containing only the fields it wants to update."""
+containing only the fields it wants to update.
+
+FastAPI constructs the full initial state before every invocation —
+all fields are required. Node-populated fields are zero-initialised
+("", False, None, [] as appropriate) so nodes can always assume the
+field exists."""
 
 from typing import TypedDict
-from langchain_core.messages import BaseMessage
+
+
+class Step(TypedDict):
+    id: str                    # short unique identifier within this plan (e.g. "delete_ring", "add_shampoo")
+    intent: str                # node to dispatch to — "tasks"|"memory"|"code"|"web"|"system"|"conversation"|"skill"
+    skill_name: str | None     # populated by ROUTER for skill steps — registry name of the skill to invoke. None for all other intent types.
+    description: str           # neutral plain-language label — ORCHESTRATOR uses this as raw material for tier-aware status messages
+    depends_on: list[str]      # IDs of steps that must succeed first. Empty list = no dependencies.
+    prompt: str                # written by DECOMPOSER — focused sub-prompt for this step's agent node. ORCHESTRATOR copies to active_step_prompt before dispatch.
+
+
+class StepResult(TypedDict):
+    step_id: str            # matches the Step.id this result belongs to
+    status: str             # "success" | "failure" | "blocked"
+    response: str           # the agent node's response for this step
+    blocked_by: str | None  # step_id of the failed step that caused this block. None if not blocked.
+    reason: str | None      # failure or block reason. None on success.
+
 
 class JarvisState(TypedDict):
-    """The state object that flows through the entire graph."""
-    messages: list[BaseMessage]  # full conversation history
-    mode: str                    # 'general' or 'coding', set by router
-    context: str                 # relevant vault chunks, injected by memory node
-    response: str                # final response, set by responder
+    # Identity — populated by FastAPI before invocation
+    user_id: str          # always present, never None — hardcoded to "clarkehines" in dev
+    message_id: str       # client-generated request ID — correlates all frames and improve log events for this request
+    tier: str             # "admin" | "power" | "standard" — from live DB record
+    client_type: str      # "tui" | "web" | "mobile"
+    assistant_name: str   # per-user, from live DB record
+
+    # Conversation
+    current_input: str        # the message the user just sent — populated by FastAPI at invocation
+    engineered_message: str   # written by PROMPT_ENGINEER — cleaned, expanded version of current_input.
+                              # All downstream nodes use this instead of current_input as primary task framing.
+                              # Zero-initialised to "" by FastAPI.
+
+    # Project context — session-level only, never persisted
+    active_project: str | None  # set by client at session start, None if no project selected.
+                                # Field present in Mk1 so no state rewiring is needed in Mk2.
+                                # Project-scoped filtering in tools/memory.py is a Mk2 concern —
+                                # always None in Mk1. Zero-initialised to None by FastAPI.
+
+    # Routing — zero-initialised by FastAPI
+    intent: list[str]      # set by ROUTER — one or more of "memory"|"tasks"|"web"|"conversation" (Mk1). "code"|"system"|"skill" added in Mk2.
+    tier_gate: list[str]   # set by ROUTER — intent names gated for this user's tier (e.g. ["code", "system"]). Empty in Mk1.
+
+    # Skills — zero-initialised by FastAPI
+    detected_skills: list[str]  # skill names identified by ROUTER — PLANNER reads to assign skill_name on skill Steps
+
+    # Output — zero-initialised by FastAPI
+    active_step_prompt: str | None  # written by ORCHESTRATOR from current_step.prompt before each dispatch.
+                                    # Agent nodes read this as their primary task framing.
+                                    # ORCHESTRATOR clears it after each step. Zero-initialised to None.
+    step_response: str              # populated by active agent node — ephemeral per-step scratch field.
+                                    # ORCHESTRATOR reads this after each step, saves to step_results,
+                                    # then clears it before the next step. Empty by the time RESPONDER runs.
+                                    # Zero-initialised to "".
+    assembled_response: str         # populated by RESPONDER — the final coherent response FastAPI sends.
+                                    # Always clean markdown — client owns rendering. Safe to store in history.
+                                    # Zero-initialised to "".
+
+    # Status — zero-initialised to None by FastAPI
+    status_message: str | None  # written by nodes mid-execution — FastAPI fires status frame on change
+
+    # Error handling — zero-initialised to None by FastAPI
+    error: str | None     # set by any node on expected failure, checked by RESPONDER
+
+    # Interrupt / confirm — zero-initialised to None by FastAPI
+    interrupt_payload: dict | None  # written by node before interrupt() — FastAPI builds confirm_request frame
+
+    # Constitutional correction — zero-initialised to None by FastAPI
+    correction: dict | None  # set by chat.py on truncate/retract re-invocation.
+                             # Shape: {clean_prefix, violation, principle}
+                             # Conditional START edge routes directly to RESPONDER when set.
+
+    # Multi-step execution
+    step_plan: list[Step] | None    # produced by PLANNER — zero-initialised to None by FastAPI
+    step_results: list[StepResult]  # accumulated step outcomes written by ORCHESTRATOR — zero-initialised to [] by FastAPI
+
+    # Refresh signals — zero-initialised to [] by FastAPI
+    refresh: list[str]    # populated by RESPONDER only — FastAPI reads to build done frame
